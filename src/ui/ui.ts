@@ -308,7 +308,7 @@ export const ui = {
                 if (Array.isArray(v.value)) {
                     const heapId = ui.getHeapId(v.value);
                     const owner = heapId ? arrayOwners.get(heapId) : null;
-                    valStr = (owner && owner !== name) ? `ref ${owner} (${heapId})` : `Array(${v.value.length}) (${heapId})`;
+                    valStr = (owner && owner !== name) ? `ref ${owner}` : `Array(${v.value.length})`;
                 } else if (v.value && v.value.type && v.value.type.includes('func')) {
                     valStr = `f(${v.value.params})`;
                 } else {
