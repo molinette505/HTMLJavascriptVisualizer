@@ -254,6 +254,35 @@ describe('interpreter - coverage des noeuds', () => {
     expect(aValue).toEqual([99, 20, 30]);
   });
 
+  it('gere les tableaux multi dimensionnels', async () => {
+    const interpreter = await runProgram(`
+      let matrix = [[1, 2], [3, 4]];
+      matrix[1][0] = 30;
+      let alias = matrix;
+      alias[0] = [0, 1, 2];
+      let read = matrix[0][1];
+    `);
+    expect(getGlobalValue(interpreter, 'read')).toBe(1);
+    expect(getGlobalValue(interpreter, 'matrix')).toEqual([[0, 1, 2], [30, 4]]);
+    expect(getGlobalValue(interpreter, 'alias')).toBe(getGlobalValue(interpreter, 'matrix'));
+  });
+
+  it('gere les trous de tableau quand un index depasse la taille', async () => {
+    const interpreter = await runProgram(`
+      let arr = [1];
+      arr[4] = 9;
+      let len = arr.length;
+      let hole = arr[2];
+    `);
+    const arrValue = getGlobalValue(interpreter, 'arr');
+    expect(getGlobalValue(interpreter, 'len')).toBe(5);
+    expect(getGlobalValue(interpreter, 'hole')).toBeUndefined();
+    expect(arrValue[4]).toBe(9);
+    expect(Object.prototype.hasOwnProperty.call(arrValue, 1)).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(arrValue, 2)).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(arrValue, 3)).toBe(false);
+  });
+
   it('execute new Array, unary, update et operateurs logiques', async () => {
     const interpreter = await runProgram(`
       let arr = new Array(3);

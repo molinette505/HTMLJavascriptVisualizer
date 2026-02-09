@@ -287,6 +287,39 @@ export const ui = {
         });
         const visibleIds = new Set(visibleScopes.map(s => s.id));
         Array.from(container.children).forEach(child => { if (!visibleIds.has(child.id)) child.remove(); });
+        const renderArrayRows = (groupDiv, scopeId, variableName, arr, path = [], depth = 1, parentHeapIds = new Set()) => {
+            for (let idx = 0; idx < arr.length; idx++) {
+                const hasValue = Object.prototype.hasOwnProperty.call(arr, idx);
+                const item = hasValue ? arr[idx] : undefined;
+                const nextPath = [...path, idx];
+                const pathKey = nextPath.join('-');
+                const isTopLevel = nextPath.length === 1;
+                const rowSuffix = isTopLevel ? `${idx}` : pathKey;
+                const rowId = `mem-row-${scopeId}-${variableName}-${rowSuffix}`;
+                const valueId = isTopLevel ? `mem-val-${variableName}-${idx}` : `mem-val-${variableName}-${pathKey}`;
+                const row = document.createElement('div');
+                row.id = rowId;
+                row.className = 'memory-cell array-element cell-entry';
+                row.setAttribute('data-path', pathKey);
+                row.style.paddingLeft = `${28 + (depth - 1) * 18}px`;
+                const itemHeapId = (hasValue && Array.isArray(item)) ? ui.getHeapId(item) : null;
+                const itemOwner = itemHeapId ? arrayOwners.get(itemHeapId) : null;
+                const isCircularRef = Boolean(itemHeapId && parentHeapIds.has(itemHeapId));
+                const displayValue = !hasValue
+                    ? 'empty'
+                    : (Array.isArray(item)
+                        ? (itemOwner ? `ref ${itemOwner}` : `Array(${item.length})`)
+                        : (item===undefined ? 'empty' : JSON.stringify(formatValue(item))));
+                row.innerHTML = `<span class="mem-addr"></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${displayValue}</span>`;
+                if(variableName===flashVarName && isTopLevel && flashIndex===idx) { row.classList.add(`flash-${flashType}`); targetEl = row; }
+                groupDiv.appendChild(row);
+                if (Array.isArray(item) && !isCircularRef) {
+                    const nextParentHeapIds = new Set(parentHeapIds);
+                    if (itemHeapId) nextParentHeapIds.add(itemHeapId);
+                    renderArrayRows(groupDiv, scopeId, variableName, item, nextPath, depth + 1, nextParentHeapIds);
+                }
+            }
+        };
 
         visibleScopes.forEach((scope) => {
             let scopeDiv = document.getElementById(scope.id);
@@ -321,13 +354,11 @@ export const ui = {
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 if (Array.isArray(v.value)) {
-                    const existing = Array.from(groupDiv.querySelectorAll('.array-element')); existing.forEach(r => { if(parseInt(r.getAttribute('data-index')) >= v.value.length) r.remove(); });
-                    v.value.forEach((item, idx) => {
-                        const iId = `mem-row-${scope.id}-${name}-${idx}`; let iRow = document.getElementById(iId);
-                        if (!iRow) { iRow = document.createElement('div'); iRow.id = iId; iRow.className = 'memory-cell array-element'; iRow.setAttribute('data-index', idx); iRow.classList.add('cell-entry'); groupDiv.appendChild(iRow); }
-                        iRow.innerHTML = `<span class="mem-addr"></span><span class="mem-name">${idx}</span><span class="mem-val" id="mem-val-${name}-${idx}">${item===undefined?'empty':JSON.stringify(formatValue(item))}</span>`;
-                        if(name===flashVarName && flashIndex===idx) { iRow.classList.add(`flash-${flashType}`); targetEl = iRow; }
-                    });
+                    groupDiv.querySelectorAll('.array-element').forEach(r => r.remove());
+                    const rootHeapId = ui.getHeapId(v.value);
+                    const rootHeapIds = new Set();
+                    if (rootHeapId) rootHeapIds.add(rootHeapId);
+                    renderArrayRows(groupDiv, scope.id, name, v.value, [], 1, rootHeapIds);
                 } else { groupDiv.querySelectorAll('.array-element').forEach(r=>r.remove()); }
             });
         });
