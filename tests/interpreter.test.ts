@@ -223,14 +223,35 @@ describe('interpreter - coverage des noeuds', () => {
       let arr = [1, 2];
       arr.push(3);
       let popped = arr.pop();
+      let firstRemoved = arr.shift();
+      let newLength = arr.unshift(7, 8);
       arr[0] = 9;
       let first = arr[0];
       let len = arr.length;
     `);
     expect(getGlobalValue(interpreter, 'popped')).toBe(3);
+    expect(getGlobalValue(interpreter, 'firstRemoved')).toBe(1);
+    expect(getGlobalValue(interpreter, 'newLength')).toBe(3);
     expect(getGlobalValue(interpreter, 'first')).toBe(9);
-    expect(getGlobalValue(interpreter, 'len')).toBe(2);
-    expect(getGlobalValue(interpreter, 'arr')).toEqual([9, 2]);
+    expect(getGlobalValue(interpreter, 'len')).toBe(3);
+    expect(getGlobalValue(interpreter, 'arr')).toEqual([9, 8, 2]);
+  });
+
+  it('partage la meme reference entre deux variables array', async () => {
+    const interpreter = await runProgram(`
+      let a = [10, 20];
+      let b = a;
+      b[0] = 99;
+      b.push(30);
+      let fromA = a[0];
+      let lenA = a.length;
+    `);
+    const aValue = getGlobalValue(interpreter, 'a');
+    const bValue = getGlobalValue(interpreter, 'b');
+    expect(aValue).toBe(bValue);
+    expect(getGlobalValue(interpreter, 'fromA')).toBe(99);
+    expect(getGlobalValue(interpreter, 'lenA')).toBe(3);
+    expect(aValue).toEqual([99, 20, 30]);
   });
 
   it('execute new Array, unary, update et operateurs logiques', async () => {

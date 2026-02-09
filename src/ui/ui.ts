@@ -8,6 +8,8 @@ export const ui = {
     speedMultiplier: 1, baseDelay: 800, globalScale: 14, 
     skipMode: false, isDrawerOpen: false, isStopping: false,
     currentWaitResolver: null,
+    heapRefs: new WeakMap(),
+    heapRefCounter: 1,
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
     speedIndex: 3, 
@@ -250,12 +252,39 @@ export const ui = {
         if (el) { el.scrollIntoView({ behavior: 'auto', block: 'center' }); }
     },
 
+    getHeapId: (value) => {
+        if (!value || typeof value !== 'object') return null;
+        let heapId = ui.heapRefs.get(value);
+        if (!heapId) {
+            heapId = `@H${String(ui.heapRefCounter++).padStart(3, '0')}`;
+            ui.heapRefs.set(value, heapId);
+        }
+        return heapId;
+    },
+
+    getMemoryValueElementId: (varName, index = null) => {
+        if (index !== null) return `mem-val-${varName}-${index}`;
+        const directId = `mem-val-${varName}`;
+        if (document.getElementById(directId)) return directId;
+        return `mem-header-${varName}`;
+    },
+
     updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null) => {
         if(ui.isStopping) return;
         if(flashVarName) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
         const visibleScopes = scopeStack.filter(s => Object.keys(s.variables).length > 0 || s.name === 'Global');
+        const arrayOwners = new Map();
+        visibleScopes.forEach((scope) => {
+            Object.keys(scope.variables).forEach((name) => {
+                const currentValue = scope.variables[name].value;
+                if (Array.isArray(currentValue)) {
+                    const heapId = ui.getHeapId(currentValue);
+                    if (heapId && !arrayOwners.has(heapId)) arrayOwners.set(heapId, name);
+                }
+            });
+        });
         const visibleIds = new Set(visibleScopes.map(s => s.id));
         Array.from(container.children).forEach(child => { if (!visibleIds.has(child.id)) child.remove(); });
 
@@ -275,7 +304,16 @@ export const ui = {
                 const v = scope.variables[name]; const groupId = `mem-group-${scope.id}-${name}`; let groupDiv = document.getElementById(groupId);
                 if (!groupDiv) { groupDiv = document.createElement('div'); groupDiv.id = groupId; groupDiv.className = 'memory-group'; groupDiv.setAttribute('data-var-name', name); groupDiv.classList.add('cell-entry'); varsContainer.appendChild(groupDiv); }
                 const shouldFlash = (name === flashVarName && flashType !== 'none' && flashIndex === null);
-                let valStr = Array.isArray(v.value) ? `Array(${v.value.length})` : (v.value && v.value.type && v.value.type.includes('func')) ? `f(${v.value.params})` : (v.value === undefined ? 'undefined' : JSON.stringify(formatValue(v.value)));
+                let valStr;
+                if (Array.isArray(v.value)) {
+                    const heapId = ui.getHeapId(v.value);
+                    const owner = heapId ? arrayOwners.get(heapId) : null;
+                    valStr = (owner && owner !== name) ? `ref ${owner} (${heapId})` : `Array(${v.value.length}) (${heapId})`;
+                } else if (v.value && v.value.type && v.value.type.includes('func')) {
+                    valStr = `f(${v.value.params})`;
+                } else {
+                    valStr = (v.value === undefined ? 'undefined' : JSON.stringify(formatValue(v.value)));
+                }
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
                 row.innerHTML = `<span class="mem-addr">${v.addr}</span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${valStr}</span>`;
@@ -345,8 +383,8 @@ export const ui = {
         await ui.wait(ui.baseDelay); await ui.wait(100); flyer.remove();
     },
 
-    animateAssignment: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const tokenEl = document.getElementById(targetTokenId); const memId = index !== null ? `mem-val-${varName}-${index}` : `mem-val-${varName}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); await ui.flyHelper(value, tokenEl, memEl); },
-    animateRead: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = index !== null ? `mem-val-${varName}-${index}` : `mem-val-${varName}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); await ui.flyHelper(value, memEl, tokenEl); },
+    animateAssignment: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const tokenEl = document.getElementById(targetTokenId); const memId = ui.getMemoryValueElementId(varName, index); ui.ensureVisible(memId); const memEl = document.getElementById(memId); await ui.flyHelper(value, tokenEl, memEl); },
+    animateRead: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = ui.getMemoryValueElementId(varName, index); ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); await ui.flyHelper(value, memEl, tokenEl); },
     visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(800); },
     animateReadHeader: async (varName, value, targetTokenId) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = `mem-header-${varName}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); await ui.flyHelper(value, memEl, tokenEl); },
     animateReturnHeader: async (varName, value, targetTokenId) => { await ui.animateReadHeader(varName, value, targetTokenId); },

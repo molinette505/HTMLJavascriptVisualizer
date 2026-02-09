@@ -1,14 +1,17 @@
 // @ts-nocheck
 export const DEFAULT_CODE = `// Démo Événements
+let a = [1, 2, 3];
+let b = a; // b partage la meme reference que a
+
 function onClick() {
-  console.log("Clic détecté !");
-  counter = counter + 1;
+  b.unshift(0); // modifie aussi a
+  let removed = a.shift();
+  console.log("removed:", removed);
+  console.log("a:", a);
+  console.log("b:", b);
 }
 
-let counter = 0;
-console.log("Programme prêt.");
-// Cliquez sur le bouton "souris" 
-// une fois le code terminé.`;
+console.log("Reference partagee: modifie b et observe a.");`;
 
 export const formatValue = (val) => {
     if (typeof val === 'number') return Number.isInteger(val) ? val : parseFloat(val.toFixed(4));
