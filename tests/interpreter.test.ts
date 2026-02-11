@@ -283,6 +283,35 @@ describe('interpreter - coverage des noeuds', () => {
     expect(Object.prototype.hasOwnProperty.call(arrValue, 3)).toBe(false);
   });
 
+  it('execute les methodes de strings enseignees', async () => {
+    const interpreter = await runProgram(`
+      let brut = "  bonjour victor  ";
+      let trimmed = brut.trim();
+      let upper = trimmed.toUpperCase();
+      let replaced = upper.replace("VICTOR", "CLASSE");
+      let hasBonjour = replaced.includes("BONJOUR");
+      let part = replaced.slice(0, 7);
+      let len = replaced.length;
+    `);
+    expect(getGlobalValue(interpreter, 'trimmed')).toBe('bonjour victor');
+    expect(getGlobalValue(interpreter, 'upper')).toBe('BONJOUR VICTOR');
+    expect(getGlobalValue(interpreter, 'replaced')).toBe('BONJOUR CLASSE');
+    expect(getGlobalValue(interpreter, 'hasBonjour')).toBe(true);
+    expect(getGlobalValue(interpreter, 'part')).toBe('BONJOUR');
+    expect(getGlobalValue(interpreter, 'len')).toBe(14);
+  });
+
+  it('execute les template literals avec interpolation ${}', async () => {
+    const interpreter = await runProgram(`
+      let prenom = "Julien";
+      let texte = "JS";
+      let msg = \`Bonjour \${prenom}, cours de \${texte.toUpperCase()}!\`;
+      let count = \`Longueur: \${msg.length}\`;
+    `);
+    expect(getGlobalValue(interpreter, 'msg')).toBe('Bonjour Julien, cours de JS!');
+    expect(getGlobalValue(interpreter, 'count')).toBe('Longueur: 28');
+  });
+
   it('execute new Array, unary, update et operateurs logiques', async () => {
     const interpreter = await runProgram(`
       let arr = new Array(3);
