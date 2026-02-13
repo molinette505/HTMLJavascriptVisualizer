@@ -31,6 +31,11 @@ document.getElementById('code-input').addEventListener('keydown', (e) => {
         const popup = document.getElementById('event-popup');
         if (popup.classList.contains('visible')) {
             app.saveEventName();
+            return;
+        }
+        const loadPopup = document.getElementById('load-popup');
+        if (loadPopup.classList.contains('visible')) {
+            app.loadSelectedScenario();
         }
     }
 });
@@ -40,6 +45,7 @@ document.getElementById('code-input').value = DEFAULT_CODE;
 editor.adjustHeight();
 editor.refresh();
 refreshIcons();
+app.initScenarioLoader();
 
 if (window.innerWidth >= 800) {
     document.getElementById('view-memory').classList.add('active');

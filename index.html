@@ -13,6 +13,7 @@
             <button id="btn-toggle-run" class="icon-btn" onclick="app.toggleRun()"><i data-lucide="play"></i></button>
             <button id="btn-next" class="icon-btn" onclick="app.stepAnimated()" disabled><i data-lucide="step-forward"></i></button>
             <button id="btn-skip" class="icon-btn" onclick="app.stepInstant()" disabled><i data-lucide="skip-forward"></i></button>
+            <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" title="Charger une sauvegarde"><i data-lucide="folder-open"></i></button>
             <button id="btn-trigger" class="icon-btn" onclick="app.triggerEvent()" disabled title="Déclencher l'événement"><i data-lucide="mouse-pointer-click"></i></button>
             <button id="btn-set-event" class="icon-btn" onclick="app.toggleEventPopup()" title="Nom de la fonction événement"><i data-lucide="pencil"></i></button>
         </div>
@@ -29,6 +30,12 @@
         <div id="event-popup" class="event-popup">
             <input type="text" id="event-name-input" value="onClick" placeholder="Nom de la fonction">
             <button onclick="app.saveEventName()">OK</button>
+        </div>
+
+        <div id="load-popup" class="event-popup load-popup">
+            <select id="load-scenario-select"></select>
+            <button onclick="app.loadSelectedScenario()">Load</button>
+            <button class="btn-secondary" onclick="app.toggleLoadPopup()">Fermer</button>
         </div>
     </div>
 

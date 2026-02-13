@@ -111,6 +111,16 @@
             width: 120px;
             outline: none;
         }
+        .event-popup select {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: var(--code-font-family);
+            width: 220px;
+            outline: none;
+        }
         .event-popup button {
             background: var(--accent);
             color: white;
@@ -120,6 +130,12 @@
             cursor: pointer;
             font-weight: bold;
         }
+        .event-popup button.btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-main);
+        }
+        .load-popup { left: 120px; }
 
         /* Lucide icon adjustments */
         .lucide { width: 18px; height: 18px; stroke-width: 2.5px; }
