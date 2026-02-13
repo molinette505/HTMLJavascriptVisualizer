@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   Lexer,
   Parser,
@@ -69,6 +69,7 @@ const createMockUi = () => ({
   ensureVisible: () => {},
   replaceTokenText: () => {},
   setRawTokenText: () => {},
+  setTokenMarkup: () => {},
   resetTokenText: () => {},
   consoleLog: async () => {},
   stopAnimations: () => {},
@@ -301,6 +302,19 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'len')).toBe(14);
   });
 
+  it('execute array.slice sans modifier le tableau original', async () => {
+    const interpreter = await runProgram(`
+      let arr = [1, 2, 3, 4];
+      let sub = arr.slice(1, 3);
+      let first = arr[0];
+      let len = arr.length;
+    `);
+    expect(getGlobalValue(interpreter, 'sub')).toEqual([2, 3]);
+    expect(getGlobalValue(interpreter, 'arr')).toEqual([1, 2, 3, 4]);
+    expect(getGlobalValue(interpreter, 'first')).toBe(1);
+    expect(getGlobalValue(interpreter, 'len')).toBe(4);
+  });
+
   it('execute les template literals avec interpolation ${}', async () => {
     const interpreter = await runProgram(`
       let prenom = "Julien";
@@ -310,6 +324,19 @@ describe('interpreter - coverage des noeuds', () => {
     `);
     expect(getGlobalValue(interpreter, 'msg')).toBe('Bonjour Julien, cours de JS!');
     expect(getGlobalValue(interpreter, 'count')).toBe('Longueur: 28');
+  });
+
+  it('visualise le remplacement progressif des ${} dans un template literal', async () => {
+    const ui = createMockUi() as any;
+    ui.setTokenMarkup = vi.fn();
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let prenom = "Julien";
+      let msg = \`Bonjour \${prenom}\`;
+    `);
+    const markupValues = ui.setTokenMarkup.mock.calls.map((call: any[]) => call[1]);
+    expect(markupValues.some((markup: string) => markup.includes('${') && markup.includes('prenom'))).toBe(true);
+    expect(markupValues.some((markup: string) => markup.includes('Julien'))).toBe(true);
   });
 
   it('execute new Array, unary, update et operateurs logiques', async () => {

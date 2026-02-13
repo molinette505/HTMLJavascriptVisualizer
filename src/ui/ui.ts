@@ -1,7 +1,86 @@
 // @ts-nocheck
-import { TokenType } from '../core/language';
+import { TokenType, Lexer } from '../core/language';
 import { formatValue } from '../core/config';
 import { refreshIcons } from './icons';
+
+const escapeHtml = (value) => String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const classNameForTokenType = (type) => {
+    switch(type) {
+        case TokenType.KEYWORD: return 'tok-keyword';
+        case TokenType.STRING: return 'tok-string';
+        case TokenType.NUMBER: return 'tok-number';
+        case TokenType.BOOLEAN: return 'tok-boolean';
+        case TokenType.COMMENT: return 'tok-comment';
+        case TokenType.OPERATOR: return 'tok-operator';
+        case TokenType.PUNCTUATION: return 'tok-punctuation';
+        default: return 'tok-ident';
+    }
+};
+
+const renderTemplateStringValue = (rawTemplateTokenValue) => {
+    if (!(rawTemplateTokenValue.startsWith('`') && rawTemplateTokenValue.endsWith('`'))) {
+        return escapeHtml(rawTemplateTokenValue);
+    }
+    const content = rawTemplateTokenValue.slice(1, -1);
+    let html = '`';
+    let index = 0;
+    let textStart = 0;
+    const appendRawText = (text) => { html += escapeHtml(text); };
+    const appendExprHtml = (exprSource) => {
+        html += '<span class="tok-punctuation">${</span>';
+        const exprTokens = new Lexer(exprSource).tokenize();
+        exprTokens.forEach((exprToken) => {
+            if (exprToken.type === 'WHITESPACE') {
+                html += escapeHtml(exprToken.value);
+            } else {
+                html += `<span class="${classNameForTokenType(exprToken.type)}">${escapeHtml(exprToken.value)}</span>`;
+            }
+        });
+        html += '<span class="tok-punctuation">}</span>';
+    };
+    while (index < content.length) {
+        if (content[index] === '$' && content[index + 1] === '{') {
+            appendRawText(content.slice(textStart, index));
+            index += 2;
+            const exprStart = index;
+            let depth = 1;
+            while (index < content.length && depth > 0) {
+                const char = content[index];
+                if (char === "'" || char === '"' || char === '`') {
+                    const quote = char;
+                    index++;
+                    while (index < content.length) {
+                        if (content[index] === '\\') { index += 2; continue; }
+                        if (content[index] === quote) { index++; break; }
+                        index++;
+                    }
+                    continue;
+                }
+                if (char === '{') depth++;
+                else if (char === '}') depth--;
+                index++;
+            }
+            const exprSource = content.slice(exprStart, Math.max(exprStart, index - 1));
+            appendExprHtml(exprSource);
+            textStart = index;
+            continue;
+        }
+        if (content[index] === '\\' && index + 1 < content.length) {
+            index += 2;
+            continue;
+        }
+        index++;
+    }
+    appendRawText(content.slice(textStart));
+    html += '`';
+    return html;
+};
 
 export const ui = {
     modifiedTokens: new Map(), lockedTokens: new Set(), 
@@ -137,9 +216,14 @@ export const ui = {
         const display = document.getElementById('code-display');
         display.innerHTML = ''; let html = '';
         tokens.forEach(t => {
-            let className = 'tok-ident';
-            switch(t.type) { case TokenType.KEYWORD: className = 'tok-keyword'; break; case TokenType.STRING: className = 'tok-string'; break; case TokenType.NUMBER: className = 'tok-number'; break; case TokenType.BOOLEAN: className = 'tok-boolean'; break; case TokenType.COMMENT: className = 'tok-comment'; break; case TokenType.OPERATOR: className = 'tok-operator'; break; case TokenType.PUNCTUATION: className = 'tok-punctuation'; break; }
-            if (t.type === 'WHITESPACE') html += t.value; else html += `<span id="${t.id}" class="${className}">${t.value}</span>`;
+            const className = classNameForTokenType(t.type);
+            if (t.type === 'WHITESPACE') {
+                html += t.value;
+            } else if (t.type === TokenType.STRING && t.value.startsWith('`') && t.value.endsWith('`')) {
+                html += `<span id="${t.id}" class="${className}">${renderTemplateStringValue(t.value)}</span>`;
+            } else {
+                html += `<span id="${t.id}" class="${className}">${escapeHtml(t.value)}</span>`;
+            }
         });
         display.innerHTML = html;
         ui.modifiedTokens.clear(); ui.lockedTokens.clear();
@@ -368,10 +452,16 @@ export const ui = {
     animateArrayPop: async (arrName, index) => { if (ui.skipMode) return; await ui.ensureDrawerOpen('memory'); const valSpan = document.getElementById(`mem-val-${arrName}-${index}`); if(valSpan && valSpan.parentElement) { valSpan.parentElement.classList.add('cell-remove'); await ui.wait(400); } },
     highlightArrayElements: async (arrName, indices, type = 'delete') => { if(indices.length > 0) { await ui.ensureDrawerOpen('memory'); ui.ensureVisible(`mem-val-${arrName}-${indices[0]}`); } indices.forEach(i => { const el = document.getElementById(`mem-val-${arrName}-${i}`); if(el && el.parentElement) el.parentElement.classList.add(`flash-${type}`); }); },
     lockTokens: (ids) => ids.forEach(id => ui.lockedTokens.add(id)), unlockTokens: (ids) => ids.forEach(id => ui.lockedTokens.delete(id)),
-    replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { if (!ui.modifiedTokens.has(tokenId)) { ui.modifiedTokens.set(tokenId, { original: el.innerText, transient: isTransient }); } el.innerText = Array.isArray(newValue) ? JSON.stringify(newValue) : JSON.stringify(formatValue(newValue)); el.classList.add('val-replacement'); } },
-    setRawTokenText: (tokenId, text, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { if (!ui.modifiedTokens.has(tokenId)) ui.modifiedTokens.set(tokenId, { original: el.innerText, transient: isTransient }); el.innerText = text; el.classList.add('val-replacement'); } },
-    resetTokenText: (tokenId) => { const el = document.getElementById(tokenId); if (el && ui.modifiedTokens.has(tokenId)) { const data = ui.modifiedTokens.get(tokenId); el.innerText = data.original; el.classList.remove('val-replacement'); ui.modifiedTokens.delete(tokenId); } },
-    resetVisuals: () => { for (const [id, data] of ui.modifiedTokens) { if (data.transient && !ui.lockedTokens.has(id)) { const el = document.getElementById(id); if (el) { el.innerText = data.original; el.classList.remove('val-replacement'); el.classList.remove('op-result'); el.style.opacity = '1'; el.style.display = 'inline'; el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; } ui.modifiedTokens.delete(id); } } const hidden = document.querySelectorAll('[style*="display: none"]'); hidden.forEach(el => { if(!ui.modifiedTokens.has(el.id) || (ui.modifiedTokens.get(el.id).transient && !ui.lockedTokens.has(el.id))) { el.style.display = 'inline'; el.style.opacity = '1'; el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; } }); },
+    rememberTokenOriginal: (tokenId, el, isTransient = true) => {
+        if (!ui.modifiedTokens.has(tokenId)) {
+            ui.modifiedTokens.set(tokenId, { original: el.innerText, originalHtml: el.innerHTML, transient: isTransient });
+        }
+    },
+    replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = Array.isArray(newValue) ? JSON.stringify(newValue) : JSON.stringify(formatValue(newValue)); el.classList.add('val-replacement'); } },
+    setRawTokenText: (tokenId, text, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = text; el.classList.add('val-replacement'); } },
+    setTokenMarkup: (tokenId, html, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerHTML = html; el.classList.add('val-replacement'); } },
+    resetTokenText: (tokenId) => { const el = document.getElementById(tokenId); if (el && ui.modifiedTokens.has(tokenId)) { const data = ui.modifiedTokens.get(tokenId); if (Object.prototype.hasOwnProperty.call(data, 'originalHtml')) el.innerHTML = data.originalHtml; else el.innerText = data.original; el.classList.remove('val-replacement'); ui.modifiedTokens.delete(tokenId); } },
+    resetVisuals: () => { for (const [id, data] of ui.modifiedTokens) { if (data.transient && !ui.lockedTokens.has(id)) { const el = document.getElementById(id); if (el) { if (Object.prototype.hasOwnProperty.call(data, 'originalHtml')) el.innerHTML = data.originalHtml; else el.innerText = data.original; el.classList.remove('val-replacement'); el.classList.remove('op-result'); el.style.opacity = '1'; el.style.display = 'inline'; el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; } ui.modifiedTokens.delete(id); } } const hidden = document.querySelectorAll('[style*="display: none"]'); hidden.forEach(el => { if(!ui.modifiedTokens.has(el.id) || (ui.modifiedTokens.get(el.id).transient && !ui.lockedTokens.has(el.id))) { el.style.display = 'inline'; el.style.opacity = '1'; el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; } }); },
 
     flyHelper: async (value, startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;

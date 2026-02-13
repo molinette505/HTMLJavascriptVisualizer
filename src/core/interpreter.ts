@@ -27,6 +27,7 @@ import {
     ArgumentsNode,
     BinaryExpr,
     ReturnStmt,
+    TokenType,
 } from './language';
 import { Scope } from './scope';
 
@@ -133,12 +134,42 @@ export class Interpreter {
         return await this.evaluate(ast.body[0]);
     }
 
-    async evaluateTemplateLiteral(templateSource) {
-        let result = '';
+    templateTokenClass(type) {
+        switch (type) {
+            case TokenType.KEYWORD: return 'tok-keyword';
+            case TokenType.STRING: return 'tok-string';
+            case TokenType.NUMBER: return 'tok-number';
+            case TokenType.BOOLEAN: return 'tok-boolean';
+            case TokenType.COMMENT: return 'tok-comment';
+            case TokenType.OPERATOR: return 'tok-operator';
+            case TokenType.PUNCTUATION: return 'tok-punctuation';
+            default: return 'tok-ident';
+        }
+    }
+
+    escapeTemplateHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    parseTemplateSegments(templateSource) {
+        const segments = [];
         let index = 0;
+        let textStart = 0;
         while (index < templateSource.length) {
             const current = templateSource[index];
+            if (current === '\\' && index + 1 < templateSource.length) {
+                index += 2;
+                continue;
+            }
             if (current === '$' && templateSource[index + 1] === '{') {
+                if (textStart < index) {
+                    segments.push({ type: 'text', value: templateSource.slice(textStart, index) });
+                }
                 index += 2;
                 const exprStart = index;
                 let depth = 1;
@@ -159,28 +190,115 @@ export class Interpreter {
                     index++;
                 }
                 if (depth !== 0) throw new Error('Template literal invalide: ${...} non ferme');
-                const exprSource = templateSource.slice(exprStart, index - 1);
-                const exprValue = await this.evaluateTemplateExpression(exprSource);
-                result += String(exprValue);
+                segments.push({ type: 'expr', source: templateSource.slice(exprStart, index - 1), value: '' });
+                textStart = index;
                 continue;
             }
-            if (current === '\\' && index + 1 < templateSource.length) {
-                const escaped = templateSource[index + 1];
-                if (escaped === 'n') { result += '\n'; index += 2; continue; }
-                if (escaped === 't') { result += '\t'; index += 2; continue; }
-                result += escaped;
-                index += 2;
-                continue;
-            }
-            result += current;
             index++;
         }
-        return result;
+        if (textStart < templateSource.length) {
+            segments.push({ type: 'text', value: templateSource.slice(textStart) });
+        }
+        return segments;
+    }
+
+    decodeTemplateText(text) {
+        let value = '';
+        for (let index = 0; index < text.length; index++) {
+            const current = text[index];
+            if (current === '\\' && index + 1 < text.length) {
+                const escaped = text[index + 1];
+                if (escaped === 'n') { value += '\n'; index++; continue; }
+                if (escaped === 't') { value += '\t'; index++; continue; }
+                value += escaped;
+                index++;
+                continue;
+            }
+            value += current;
+        }
+        return value;
+    }
+
+    renderTemplateSegments(segments, includeUnresolvedExpr = false, decodeText = false) {
+        return segments.map((segment) => {
+            if (segment.type === 'text') return decodeText ? this.decodeTemplateText(segment.value) : segment.value;
+            if (includeUnresolvedExpr && !segment.resolved) return `\${${segment.source}}`;
+            return String(segment.value);
+        }).join('');
+    }
+
+    renderTemplateTokenMarkup(segments) {
+        let html = '`';
+        for (const segment of segments) {
+            if (segment.type === 'text') {
+                html += this.escapeTemplateHtml(segment.value);
+                continue;
+            }
+            if (segment.resolved) {
+                html += this.escapeTemplateHtml(String(segment.value));
+                continue;
+            }
+            html += '<span class="tok-punctuation">${</span>';
+            const exprTokens = segment.tokens || [];
+            exprTokens.forEach((exprToken) => {
+                if (exprToken.type === 'WHITESPACE') {
+                    html += this.escapeTemplateHtml(exprToken.value);
+                    return;
+                }
+                html += `<span id="${exprToken.id}" class="${this.templateTokenClass(exprToken.type)}">${this.escapeTemplateHtml(exprToken.value)}</span>`;
+            });
+            html += '<span class="tok-punctuation">}</span>';
+        }
+        html += '`';
+        return html;
+    }
+
+    setTemplateTokenContent(tokenId, segments) {
+        if (!tokenId) return;
+        const markup = this.renderTemplateTokenMarkup(segments);
+        if (typeof this.ui.setTokenMarkup === 'function') {
+            this.ui.setTokenMarkup(tokenId, markup, true);
+            return;
+        }
+        const plain = `\`${this.renderTemplateSegments(segments, true)}\``;
+        this.ui.setRawTokenText(tokenId, plain, true);
+    }
+
+    async evaluateTemplateLiteral(templateSource, tokenId = null) {
+        const segments = this.parseTemplateSegments(templateSource);
+        segments.forEach((segment) => {
+            if (segment.type !== 'expr') return;
+            const exprLexer = new Lexer(segment.source);
+            const exprRawTokens = exprLexer.tokenize();
+            const exprParser = new Parser(exprRawTokens);
+            const exprAst = exprParser.parse();
+            if (!exprAst.body || exprAst.body.length !== 1) throw new Error('Expression template invalide');
+            segment.tokens = exprRawTokens;
+            segment.ast = exprAst.body[0];
+            segment.resolved = false;
+        });
+        if (tokenId) {
+            this.setTemplateTokenContent(tokenId, segments);
+        }
+        for (const segment of segments) {
+            if (segment.type !== 'expr') continue;
+            const exprValue = await this.evaluate(segment.ast);
+            segment.value = exprValue;
+            segment.resolved = true;
+            if (tokenId) {
+                this.setTemplateTokenContent(tokenId, segments);
+                await this.ui.wait(400);
+            }
+        }
+        return this.renderTemplateSegments(segments, false, true);
     }
 
     async evaluate(node) {
         if (node instanceof Literal) {
-            if (node.isTemplate) return await this.evaluateTemplateLiteral(node.value);
+            if (node.isTemplate) {
+                const tokenId = node.domIds && node.domIds.length > 0 ? node.domIds[0] : null;
+                return await this.evaluateTemplateLiteral(node.value, tokenId);
+            }
             return node.value;
         }
         if (node instanceof UnaryExpr) { const arg = await this.evaluate(node.arg); let res; if (node.op === '!') res = !arg; else if (node.op === '-') res = -arg; else if (node.op === '+') res = +arg; await this.ui.animateOperationCollapse(node.domIds, res); await this.ui.wait(800); return res; }
@@ -202,6 +320,7 @@ export class Interpreter {
                     if (method === 'push') { const newIndex = obj.length; for (let i = 0; i < argValues.length; i++) { const val = argValues[i]; const currentIdx = newIndex + i; obj[currentIdx] = undefined; await this.ui.updateMemory(this.scopeStack); if (node.args[i]) { await this.ui.animateAssignment(arrName, val, node.args[i].domIds[0], currentIdx); } obj[currentIdx] = val; await this.ui.updateMemory(this.scopeStack, arrName, 'write', currentIdx); } result = obj.length; await this.ui.animateReturnHeader(arrName, result, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; } 
                     else if (method === 'pop') { const lastIndex = obj.length - 1; const val = obj[lastIndex]; await this.ui.animateRead(arrName, val, node.domIds[0], lastIndex); await this.ui.animateArrayPop(arrName, lastIndex); result = obj.pop(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
                     else if (method === 'splice') { const start = argValues[0]; const count = argValues[1] || 0; const removedItems = obj.slice(start, start + count); if (removedItems.length > 0) { const indicesToHighlight = []; for(let i=0; i<count; i++) indicesToHighlight.push(start + i); await this.ui.highlightArrayElements(arrName, indicesToHighlight, 'delete'); await this.ui.wait(500); await this.ui.animateSpliceRead(arrName, removedItems, node.domIds[0], start); } result = obj.splice(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); const resultStr = `[${result.map(v => JSON.stringify(v)).join(', ')}]`; this.ui.setRawTokenText(node.domIds[0], resultStr, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
+                    else if (method === 'slice') { const start = argValues.length > 0 ? argValues[0] : 0; const normalizedStart = typeof start === 'number' && start < 0 ? Math.max(obj.length + start, 0) : (start || 0); result = obj.slice(...argValues); if (result.length > 0) { await this.ui.animateSpliceRead(arrName, result, node.domIds[0], normalizedStart); } const resultStr = `[${result.map(v => JSON.stringify(v)).join(', ')}]`; this.ui.setRawTokenText(node.domIds[0], resultStr, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
                     if (method === 'shift') { const firstVal = obj[0]; await this.ui.animateRead(arrName, firstVal, node.domIds[0], 0); result = obj.shift(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
                     if (method === 'unshift') { result = obj.unshift(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); if(node.args.length>0) await this.ui.animateAssignment(arrName, argValues[0], node.args[0].domIds[0], 0); await this.ui.animateReturnHeader(arrName, result, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
                     if (result !== undefined) return result;
