@@ -38,8 +38,12 @@
         </div>
 
         <div id="load-popup" class="event-popup load-popup">
+            <span class="load-label">Scenarios JS</span>
             <select id="load-scenario-select"></select>
-            <button onclick="app.loadSelectedScenario()">Load</button>
+            <button onclick="app.loadSelectedScenario()">Load JS</button>
+            <span class="load-label">Documents HTML</span>
+            <select id="load-dom-select"></select>
+            <button onclick="app.loadSelectedDomDocument()">Load HTML</button>
             <button class="btn-secondary" onclick="app.toggleLoadPopup()">Fermer</button>
         </div>
     </div>
@@ -91,6 +95,7 @@
             <div class="drawer-tabs">
                 <div class="drawer-tab active" onclick="ui.switchTab('memory')" id="tab-memory">Mémoire</div>
                 <div class="drawer-tab" onclick="ui.switchTab('console')" id="tab-console">Console</div>
+                <div class="drawer-tab" onclick="ui.switchTab('dom')" id="tab-dom">DOM</div>
             </div>
             <div id="view-memory" class="drawer-content active">
                 <div class="panel-header">
@@ -104,6 +109,21 @@
                     <span class="panel-header-action" onclick="consoleUI.clear()">🗑️ Effacer</span>
                 </div>
                 <div class="console-box" id="console-output"></div>
+            </div>
+            <div id="view-dom" class="drawer-content">
+                <div class="panel-header">
+                    <span>DOM</span>
+                </div>
+                <div class="dom-view-tabs">
+                    <button class="dom-mode-btn active" data-mode="render" onclick="ui.switchDomView('render')">Render</button>
+                    <button class="dom-mode-btn" data-mode="html" onclick="ui.switchDomView('html')">HTML</button>
+                    <button class="dom-mode-btn" data-mode="tree" onclick="ui.switchDomView('tree')">Tree</button>
+                </div>
+                <div id="dom-view-render" class="dom-view active">
+                    <div id="dom-render-canvas"></div>
+                </div>
+                <pre id="dom-view-html" class="dom-view"><code id="dom-html-code"></code></pre>
+                <div id="dom-view-tree" class="dom-view"></div>
             </div>
         </div>
     </div>

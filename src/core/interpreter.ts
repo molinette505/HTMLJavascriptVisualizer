@@ -31,9 +31,10 @@ import {
     TokenType,
 } from './language';
 import { Scope } from './scope';
+import { createVirtualDocument, isVirtualDomValue } from './virtualDom';
 
 export class Interpreter {
-    constructor(ui) {
+    constructor(ui, options = {}) {
         this.ui = ui;
         this.globalScope = new Scope("Global");
         this.currentScope = this.globalScope;
@@ -42,12 +43,21 @@ export class Interpreter {
         this.scopeStack = [this.globalScope];
         this.shouldStop = false;
         this.resolveNext = null;
+        this.initialDomHtml = options.domHtml || '<body></body>';
+        this.domDocument = createVirtualDocument(this.initialDomHtml);
     }
 
     async start(code) { 
         this.shouldStop = false; 
+        this.functions = {};
         this.callStack = []; 
+        this.domDocument = createVirtualDocument(this.initialDomHtml);
+        this.globalScope = new Scope("Global");
+        this.currentScope = this.globalScope;
+        this.globalScope.define('document', 'const');
+        this.globalScope.initialize('document', this.domDocument);
         this.scopeStack = [this.globalScope]; 
+        if (typeof this.ui.updateDom === 'function') this.ui.updateDom(this.domDocument);
         await this.ui.updateMemory(this.scopeStack); 
         try { 
             const lexer = new Lexer(code); 
@@ -127,13 +137,52 @@ export class Interpreter {
         this.ui.log(`${prefix}: ${friendly}`, "error");
         if (friendly !== raw) this.ui.log(`Detail technique: ${raw}`, "error");
     }
+    refreshDomView() {
+        if (this.domDocument && typeof this.ui.updateDom === 'function') this.ui.updateDom(this.domDocument);
+    }
 
     async execute(node) {
         if (this.shouldStop) return;
         if (node instanceof BlockStmt) { const blockScope = new Scope("Block", this.currentScope, this.currentScope); this.scopeStack.push(blockScope); const prevScope = this.currentScope; this.currentScope = blockScope; let result; try { result = await this.executeBlock(node.body); } finally { this.currentScope = prevScope; this.scopeStack.pop(); await this.ui.updateMemory(this.scopeStack); } return result; }
         if (node instanceof MultiVarDecl) { for (const decl of node.decls) { await this.execute(decl); } return; }
         if (node instanceof VarDecl) { await this.pause(node.line); this.currentScope.define(node.name, node.kind); await this.ui.updateMemory(this.scopeStack, node.name, 'declare'); await this.ui.wait(600); if (node.init) { if (node.init instanceof ArrayLiteral) { const arr = new Array(node.init.elements.length).fill(undefined); this.currentScope.initialize(node.name, arr); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); for(let i=0; i<node.init.elements.length; i++) { const val = await this.evaluate(node.init.elements[i]); arr[i] = val; await this.ui.animateAssignment(node.name, val, node.init.elements[i].domIds[0], i); await this.ui.updateMemory(this.scopeStack, node.name, 'write', i); } } else if (node.init instanceof ArrowFunctionExpr) { const func = { type: 'arrow_func', params: node.init.params.map(p=>p.name), body: node.init.body, scope: this.currentScope, paramIds: node.init.params.map(p=>p.id) }; this.currentScope.initialize(node.name, func); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } else if (node.init instanceof FunctionExpression) { const func = await this.evaluate(node.init); this.currentScope.initialize(node.name, func); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } else { const val = await this.evaluate(node.init); this.currentScope.initialize(node.name, val); await this.ui.animateAssignment(node.name, val, node.init.domIds[0]); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } } }
-        else if (node instanceof Assignment) { await this.pause(node.line); let val; if (node.value instanceof ArrowFunctionExpr) { val = { type: 'arrow_func', params: node.value.params.map(p=>p.name), body: node.value.body, scope: this.currentScope, paramIds: node.value.params.map(p=>p.id) }; } else { val = await this.evaluate(node.value); } if (node.left instanceof Identifier) { this.currentScope.assign(node.left.name, val); if (typeof val !== 'object' || (val.type !== 'arrow_func' && val.type !== 'function_expr')) { await this.ui.animateAssignment(node.left.name, val, node.value.domIds[0]); } await this.ui.updateMemory(this.scopeStack, node.left.name, 'write'); } else if (node.left instanceof MemberExpr) { let obj; let targetName = null; if (node.left.object instanceof Identifier) { targetName = node.left.object.name; const scopedVar = this.currentScope.get(targetName); obj = scopedVar.value; } else { obj = await this.evaluate(node.left.object); } const prop = node.left.computed ? await this.evaluate(node.left.property) : node.left.property.value; if (Array.isArray(obj)) { obj[prop] = val; if (targetName) { await this.ui.animateAssignment(targetName, val, node.value.domIds[0], prop); await this.ui.updateMemory(this.scopeStack, targetName, 'write', prop); } } } }
+        else if (node instanceof Assignment) {
+            await this.pause(node.line);
+            let val;
+            if (node.value instanceof ArrowFunctionExpr) {
+                val = { type: 'arrow_func', params: node.value.params.map(p=>p.name), body: node.value.body, scope: this.currentScope, paramIds: node.value.params.map(p=>p.id) };
+            } else {
+                val = await this.evaluate(node.value);
+            }
+            if (node.left instanceof Identifier) {
+                this.currentScope.assign(node.left.name, val);
+                if (typeof val !== 'object' || (val.type !== 'arrow_func' && val.type !== 'function_expr')) {
+                    await this.ui.animateAssignment(node.left.name, val, node.value.domIds[0]);
+                }
+                await this.ui.updateMemory(this.scopeStack, node.left.name, 'write');
+            } else if (node.left instanceof MemberExpr) {
+                let obj;
+                let targetName = null;
+                if (node.left.object instanceof Identifier) {
+                    targetName = node.left.object.name;
+                    const scopedVar = this.currentScope.get(targetName);
+                    obj = scopedVar.value;
+                } else {
+                    obj = await this.evaluate(node.left.object);
+                }
+                const prop = node.left.computed ? await this.evaluate(node.left.property) : node.left.property.value;
+                if (Array.isArray(obj)) {
+                    obj[prop] = val;
+                    if (targetName) {
+                        await this.ui.animateAssignment(targetName, val, node.value.domIds[0], prop);
+                        await this.ui.updateMemory(this.scopeStack, targetName, 'write', prop);
+                    }
+                } else if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
+                    obj[prop] = val;
+                    if (isVirtualDomValue(obj)) this.refreshDomView();
+                }
+            }
+        }
         else if (node instanceof CallExpr) { await this.pause(node.line); await this.evaluate(node); }
         else if (node instanceof UpdateExpr) { await this.pause(node.line); await this.evaluate(node); }
         else if (node instanceof IfStmt) { await this.pause(node.line); const test = await this.evaluate(node.test); this.ui.lockTokens(node.test.domIds||[]); let res; try { if (test) { if (node.consequent instanceof BlockStmt) res = await this.executeBlock(node.consequent.body); else res = await this.execute(node.consequent); } else if (node.alternate) { if (node.alternate instanceof BlockStmt) res = await this.executeBlock(node.alternate.body); else res = await this.execute(node.alternate); } } finally { this.ui.unlockTokens(node.test.domIds||[]); } if (res) return res; }
@@ -410,6 +459,16 @@ export class Interpreter {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
                     if (['replace', 'toUpperCase', 'trim', 'includes', 'slice'].includes(method) && typeof obj[method] === 'function') {
                         const result = obj[method](...argValues);
+                        await this.ui.animateOperationCollapse(node.domIds, result);
+                        await this.ui.wait(800);
+                        return result;
+                    }
+                }
+                if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
+                    const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
+                    if (typeof obj[method] === 'function') {
+                        const result = obj[method](...argValues);
+                        if (isVirtualDomValue(obj) && ['appendChild', 'removeChild'].includes(method)) this.refreshDomView();
                         await this.ui.animateOperationCollapse(node.domIds, result);
                         await this.ui.wait(800);
                         return result;

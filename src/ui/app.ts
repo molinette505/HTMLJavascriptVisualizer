@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { Interpreter } from '../core/interpreter';
 import { SCENARIOS } from '../core/scenarios';
+import { DOM_DOCUMENTS } from '../core/domDocuments';
+import { createVirtualDocument } from '../core/virtualDom';
 import { ui, consoleUI } from './ui';
 import { editor } from './editor';
 
@@ -9,6 +11,8 @@ export const app = {
     isRunning: false,
     eventFunctionName: 'onClick',
     scenarios: SCENARIOS,
+    domDocuments: DOM_DOCUMENTS,
+    currentDomHtml: DOM_DOCUMENTS.length > 0 ? DOM_DOCUMENTS[0].html : '<body></body>',
     pendingScenarioLoadTimer: null,
     
     toggleRun: () => {
@@ -24,7 +28,7 @@ export const app = {
         app.isRunning = true;
         ui.setRunningState(true);
         consoleUI.clear();
-        app.interpreter = new Interpreter(ui);
+        app.interpreter = new Interpreter(ui, { domHtml: app.currentDomHtml });
         app.interpreter.start(code);
     },
     
@@ -75,18 +79,28 @@ export const app = {
 
     initScenarioLoader: () => {
         const select = document.getElementById('load-scenario-select');
+        const domSelect = document.getElementById('load-dom-select');
         const loadButton = document.getElementById('btn-load');
-        if (!select || !loadButton) return;
+        if (!select || !domSelect || !loadButton) return;
         if (app.scenarios.length === 0) {
             select.innerHTML = '<option value="">Aucune sauvegarde</option>';
-            loadButton.disabled = true;
-            return;
+        } else {
+            select.innerHTML = app.scenarios
+                .map((scenario, index) => `<option value="${index}">${scenario.title}</option>`)
+                .join('');
+            select.value = '0';
         }
-        loadButton.disabled = false;
-        select.innerHTML = app.scenarios
-            .map((scenario, index) => `<option value="${index}">${scenario.title}</option>`)
-            .join('');
-        select.value = '0';
+        if (app.domDocuments.length === 0) {
+            domSelect.innerHTML = '<option value="">Aucun document HTML</option>';
+        } else {
+            domSelect.innerHTML = app.domDocuments
+                .map((documentItem, index) => `<option value="${index}">${documentItem.title}</option>`)
+                .join('');
+            domSelect.value = '0';
+            app.currentDomHtml = app.domDocuments[0].html;
+            ui.updateDom(createVirtualDocument(app.currentDomHtml));
+        }
+        loadButton.disabled = app.scenarios.length === 0 && app.domDocuments.length === 0;
     },
 
     toggleLoadPopup: () => {
@@ -115,6 +129,14 @@ export const app = {
         if (popup) popup.classList.remove('visible');
     },
 
+    applyDomDocument: (documentItem) => {
+        app.currentDomHtml = documentItem.html;
+        ui.updateDom(createVirtualDocument(app.currentDomHtml));
+        ui.log(`Document HTML charge: ${documentItem.title}`, 'info');
+        const popup = document.getElementById('load-popup');
+        if (popup) popup.classList.remove('visible');
+    },
+
     loadSelectedScenario: () => {
         const select = document.getElementById('load-scenario-select');
         if (!select) return;
@@ -136,6 +158,23 @@ export const app = {
             return;
         }
         app.applyScenario(scenario);
+    },
+
+    loadSelectedDomDocument: () => {
+        const domSelect = document.getElementById('load-dom-select');
+        if (!domSelect) return;
+        const index = parseInt(domSelect.value, 10);
+        if (Number.isNaN(index) || index < 0 || index >= app.domDocuments.length) return;
+        const documentItem = app.domDocuments[index];
+        if (app.isRunning) {
+            app.stop();
+            app.pendingScenarioLoadTimer = setTimeout(() => {
+                app.applyDomDocument(documentItem);
+                app.pendingScenarioLoadTimer = null;
+            }, 90);
+            return;
+        }
+        app.applyDomDocument(documentItem);
     },
     
     triggerEvent: () => {

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { TokenType, Lexer } from '../core/language';
 import { formatValue } from '../core/config';
+import { serializeVirtualDocument } from '../core/virtualDom';
 import { refreshIcons } from './icons';
 
 const escapeHtml = (value) => String(value)
@@ -82,6 +83,29 @@ const renderTemplateStringValue = (rawTemplateTokenValue) => {
     return html;
 };
 
+const buildDomTreeMarkup = (node, depth = 0) => {
+    if (!node) return '';
+    if (node.__domType === 'text') {
+        const trimmed = String(node.textContent || '').trim();
+        if (!trimmed) return '';
+        const text = escapeHtml(trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed);
+        return `<div class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">#text</span> ${text}</div>`;
+    }
+    if (node.__domType !== 'element') return '';
+    const tag = escapeHtml(String(node.tagName || 'node').toUpperCase());
+    const idPart = node.id ? `<span class="dom-tree-id">#${escapeHtml(node.id)}</span>` : '';
+    const classes = String(node.className || '')
+        .split(/\s+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((className) => `.${escapeHtml(className)}`)
+        .join(' ');
+    const classPart = classes ? `<span class="dom-tree-class">${classes}</span>` : '';
+    const self = `<div class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}</div>`;
+    const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1)).filter(Boolean).join('');
+    return `${self}${children}`;
+};
+
 export const ui = {
     modifiedTokens: new Map(), lockedTokens: new Set(), 
     speedMultiplier: 1, baseDelay: 800, globalScale: 14, 
@@ -89,6 +113,8 @@ export const ui = {
     currentWaitResolver: null,
     heapRefs: new WeakMap(),
     heapRefCounter: 1,
+    domDocument: null,
+    domViewMode: 'render',
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
     speedIndex: 3, 
@@ -106,20 +132,27 @@ export const ui = {
         else { panel.classList.add('open'); ui.isDrawerOpen = true; }
     },
     switchTab: (tabName) => {
-        if(window.innerWidth >= 800) return; 
         document.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
-        document.getElementById(`tab-${tabName}`).classList.add('active');
+        const tabElement = document.getElementById(`tab-${tabName}`);
+        if (tabElement) tabElement.classList.add('active');
         document.querySelectorAll('.drawer-content').forEach(c => c.classList.remove('active'));
-        document.getElementById(`view-${tabName}`).classList.add('active');
+        const viewElement = document.getElementById(`view-${tabName}`);
+        if (viewElement) viewElement.classList.add('active');
     },
     
     ensureDrawerOpen: (tabName) => {
         return new Promise(resolve => {
             if (ui.skipMode || ui.isStopping) { resolve(); return; }
-            if (window.innerWidth >= 800) { resolve(); return; } 
+            if (window.innerWidth >= 800) {
+                const targetContentDesktop = document.getElementById(`view-${tabName}`);
+                if (targetContentDesktop && !targetContentDesktop.classList.contains('active')) ui.switchTab(tabName);
+                resolve();
+                return;
+            } 
             
             const panel = document.getElementById('right-panel');
             const targetContent = document.getElementById(`view-${tabName}`);
+            if (!panel || !targetContent) { resolve(); return; }
             
             if (!panel.classList.contains('open')) {
                 ui.switchTab(tabName);
@@ -281,6 +314,45 @@ export const ui = {
         document.getElementById('btn-next').disabled = true; 
         document.getElementById('btn-skip').disabled = true;
     },
+    switchDomView: (mode) => {
+        if (!['render', 'html', 'tree'].includes(mode)) return;
+        ui.domViewMode = mode;
+        ui.renderDomPanel();
+    },
+    updateDom: (domDocument) => {
+        ui.domDocument = domDocument || null;
+        ui.renderDomPanel();
+    },
+    renderDomPanel: () => {
+        const root = document.getElementById('view-dom');
+        if (!root) return;
+        const modeButtons = root.querySelectorAll('.dom-mode-btn');
+        modeButtons.forEach((button) => {
+            if (button.getAttribute('data-mode') === ui.domViewMode) button.classList.add('active');
+            else button.classList.remove('active');
+        });
+        const renderView = document.getElementById('dom-view-render');
+        const htmlView = document.getElementById('dom-view-html');
+        const treeView = document.getElementById('dom-view-tree');
+        [renderView, htmlView, treeView].forEach((view) => {
+            if (!view) return;
+            view.classList.remove('active');
+        });
+        const activeView = document.getElementById(`dom-view-${ui.domViewMode}`);
+        if (activeView) activeView.classList.add('active');
+
+        const renderCanvas = document.getElementById('dom-render-canvas');
+        if (renderCanvas) {
+            renderCanvas.innerHTML = ui.domDocument ? ui.domDocument.innerHTML : '';
+        }
+        const htmlCode = document.getElementById('dom-html-code');
+        if (htmlCode) {
+            htmlCode.textContent = ui.domDocument ? serializeVirtualDocument(ui.domDocument, true) : '<body></body>';
+        }
+        if (treeView) {
+            treeView.innerHTML = ui.domDocument ? buildDomTreeMarkup(ui.domDocument.body, 0) : '<div class="dom-tree-empty">Aucun document HTML charge.</div>';
+        }
+    },
     log: (msg, type='info') => { 
         if(ui.isStopping) return;
         const div = document.createElement('div'); div.className = `log-entry log-${type}`; div.innerText = msg; const box = document.getElementById('console-output'); box.appendChild(div); box.scrollTop = box.scrollHeight; 
@@ -358,10 +430,13 @@ export const ui = {
         if(flashVarName) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
-        const visibleScopes = scopeStack.filter(s => Object.keys(s.variables).length > 0 || s.name === 'Global');
+        const visibleScopes = scopeStack.filter((scope) => {
+            const names = Object.keys(scope.variables).filter((name) => name !== 'document');
+            return names.length > 0 || scope.name === 'Global';
+        });
         const arrayOwners = new Map();
         visibleScopes.forEach((scope) => {
-            Object.keys(scope.variables).forEach((name) => {
+            Object.keys(scope.variables).filter((name) => name !== 'document').forEach((name) => {
                 const currentValue = scope.variables[name].value;
                 if (Array.isArray(currentValue)) {
                     const heapId = ui.getHeapId(currentValue);
@@ -414,10 +489,10 @@ export const ui = {
                 scopeDiv.appendChild(titleDiv); const varsContainer = document.createElement('div'); varsContainer.id = `scope-vars-${scope.id}`; scopeDiv.appendChild(varsContainer); container.appendChild(scopeDiv);
             }
             const varsContainer = document.getElementById(`scope-vars-${scope.id}`);
-            const activeVarNames = new Set(Object.keys(scope.variables));
+            const activeVarNames = new Set(Object.keys(scope.variables).filter((name) => name !== 'document'));
             Array.from(varsContainer.children).forEach(child => { if (!activeVarNames.has(child.getAttribute('data-var-name'))) child.remove(); });
 
-            Object.keys(scope.variables).forEach(name => {
+            Object.keys(scope.variables).filter((name) => name !== 'document').forEach(name => {
                 const v = scope.variables[name]; const groupId = `mem-group-${scope.id}-${name}`; let groupDiv = document.getElementById(groupId);
                 if (!groupDiv) { groupDiv = document.createElement('div'); groupDiv.id = groupId; groupDiv.className = 'memory-group'; groupDiv.setAttribute('data-var-name', name); groupDiv.classList.add('cell-entry'); varsContainer.appendChild(groupDiv); }
                 const shouldFlash = (name === flashVarName && flashType !== 'none' && flashIndex === null);

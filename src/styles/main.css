@@ -156,7 +156,19 @@
             border: 1px solid var(--border);
             color: var(--text-main);
         }
-        .load-popup { left: 120px; }
+        .load-popup {
+            left: 120px;
+            flex-direction: column;
+            align-items: stretch;
+            width: 270px;
+        }
+        .load-label {
+            color: var(--text-dim);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
 
         /* Lucide icon adjustments */
         .lucide { width: 18px; height: 18px; stroke-width: 2.5px; }
@@ -434,19 +446,88 @@
         .drawer-content { flex: 1; overflow: hidden; display: none; position: relative; }
         .drawer-content.active { display: flex; flex-direction: column; }
 
+        .dom-view-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            background: #131d30;
+        }
+        .dom-mode-btn {
+            border: 1px solid var(--border);
+            background: #1f2a40;
+            color: var(--text-dim);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .dom-mode-btn.active {
+            color: #fff;
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.35);
+        }
+        .dom-view {
+            display: none;
+            flex: 1;
+            overflow: auto;
+            background: #0c1527;
+        }
+        .dom-view.active {
+            display: block;
+        }
+        #dom-render-canvas {
+            min-height: 100%;
+            background: #eef2f7;
+            color: #1f2937;
+            padding: 16px;
+        }
+        #dom-view-html {
+            margin: 0;
+            padding: 14px;
+            color: #c8d6f1;
+            font-family: var(--code-font-family);
+            font-size: 13px;
+            line-height: 1.45;
+            white-space: pre;
+        }
+        #dom-view-tree {
+            padding: 12px;
+            color: #c8d6f1;
+        }
+        .dom-tree-node {
+            border: 1px solid #334155;
+            background: #111f35;
+            border-radius: 8px;
+            padding: 6px 8px;
+            margin: 6px 0;
+            font-family: var(--code-font-family);
+            font-size: 12px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .dom-tree-tag { color: #a855f7; font-weight: 700; }
+        .dom-tree-id { color: #60a5fa; font-weight: 700; }
+        .dom-tree-class { color: #94a3b8; }
+        .dom-tree-text { border-style: dashed; }
+        .dom-tree-text-label { color: #f59e0b; font-weight: 700; }
+        .dom-tree-empty { color: var(--text-dim); padding: 6px; }
+
         /* --- DESKTOP --- */
         @media (min-width: 800px) {
             .main-container { flex-direction: row; }
             .right-panel {
-                width: 350px; height: 100% !important; 
+                width: 420px; height: 100% !important; 
                 border-top: none; border-left: 1px solid var(--border);
                 border-radius: 0; box-shadow: none; transition: none;
             }
             .drawer-handle-bar { display: none; }
-            .drawer-tabs { display: none; }
-            .drawer-content { display: flex !important; flex-direction: column; }
-            #view-memory { flex: 2; border-bottom: 1px solid var(--border); }
-            #view-console { flex: 1; min-height: 150px; }
+            .drawer-tabs { display: flex; }
+            .drawer-content { display: none !important; }
+            .drawer-content.active { display: flex !important; flex-direction: column; }
             #memory-container { padding-bottom: 0; }
             .mobile-tools-container { display: none !important; }
         }

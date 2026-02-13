@@ -255,6 +255,42 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'arr')).toEqual([9, 8, 2]);
   });
 
+  it('execute les operations DOM de base', async () => {
+    const interpreter = await runProgram(`
+      let card = document.createElement("div");
+      card.id = "carte";
+      card.className = "produit promo";
+      card.innerText = "CHAIR";
+      document.appendChild(card);
+      let byId = document.getElementById("carte");
+      let bySelector = document.querySelector("#carte");
+      let text = byId.innerText;
+      let sameRef = byId === bySelector;
+    `);
+    expect(getGlobalValue(interpreter, 'text')).toBe('CHAIR');
+    expect(getGlobalValue(interpreter, 'sameRef')).toBe(true);
+  });
+
+  it('execute innerHTML, value, appendChild et removeChild', async () => {
+    const interpreter = await runProgram(`
+      let input = document.createElement("input");
+      input.value = "Alice";
+      document.appendChild(input);
+      let before = document.querySelector("input").value;
+
+      let wrapper = document.createElement("div");
+      wrapper.innerHTML = "<span id='badge'>PROMO</span>";
+      document.appendChild(wrapper);
+      let badge = document.getElementById("badge");
+      let label = badge.innerText;
+      wrapper.removeChild(badge);
+      let stillThere = !!document.getElementById("badge");
+    `);
+    expect(getGlobalValue(interpreter, 'before')).toBe('Alice');
+    expect(getGlobalValue(interpreter, 'label')).toBe('PROMO');
+    expect(getGlobalValue(interpreter, 'stillThere')).toBe(false);
+  });
+
   it('partage la meme reference entre deux variables array', async () => {
     const interpreter = await runProgram(`
       let a = [10, 20];

@@ -35,7 +35,8 @@ document.getElementById('code-input').addEventListener('keydown', (e) => {
         }
         const loadPopup = document.getElementById('load-popup');
         if (loadPopup.classList.contains('visible')) {
-            app.loadSelectedScenario();
+            if (document.activeElement && document.activeElement.id === 'load-dom-select') app.loadSelectedDomDocument();
+            else app.loadSelectedScenario();
         }
     }
 });
@@ -46,13 +47,8 @@ editor.adjustHeight();
 editor.refresh();
 refreshIcons();
 app.initScenarioLoader();
-
-if (window.innerWidth >= 800) {
-    document.getElementById('view-memory').classList.add('active');
-    document.getElementById('view-console').classList.add('active');
-} else {
-    ui.switchTab('memory');
-}
+ui.renderDomPanel();
+ui.switchTab('memory');
 
 // Drawer Drag Logic
 const handle = document.getElementById('drawer-handle');
@@ -106,13 +102,10 @@ handle.addEventListener('click', () => {
 
 window.addEventListener('resize', () => {
     if (window.innerWidth >= 800) {
-        document.getElementById('view-memory').classList.add('active');
-        document.getElementById('view-console').classList.add('active');
         document.getElementById('right-panel').classList.remove('open');
     } else {
-        const memActive = document.getElementById('tab-memory').classList.contains('active');
-        const conActive = document.getElementById('tab-console').classList.contains('active');
-        if (!memActive && !conActive) ui.switchTab('memory');
+        const hasActive = document.querySelector('.drawer-tab.active');
+        if (!hasActive) ui.switchTab('memory');
     }
 });
 
