@@ -15,6 +15,7 @@ import {
   ReturnStmt,
   Assignment,
   BinaryExpr,
+  TernaryExpr,
   CallExpr,
   UpdateExpr,
   MemberExpr,
@@ -126,6 +127,7 @@ describe('lexer/parser - coverage des noeuds', () => {
   it('parse les noeuds d expression', () => {
     expect(parseFirstNode('a = 1;')).toBeInstanceOf(Assignment);
     expect(parseFirstNode('1 + 2;')).toBeInstanceOf(BinaryExpr);
+    expect(parseFirstNode('true ? 1 : 2;')).toBeInstanceOf(TernaryExpr);
     expect(parseFirstNode('fn(1, 2);')).toBeInstanceOf(CallExpr);
     expect(parseFirstNode('counter++;')).toBeInstanceOf(UpdateExpr);
     expect(parseFirstNode('arr[0];')).toBeInstanceOf(MemberExpr);
@@ -188,6 +190,21 @@ describe('interpreter - coverage des noeuds', () => {
     `);
     expect(getGlobalValue(interpreter, 'a')).toBe(6);
     expect(getGlobalValue(interpreter, 'sum')).toBe(6);
+  });
+
+  it('libere le scope de boucle for a chaque iteration', async () => {
+    const interpreter = await runProgram(`
+      let notes = [14, 11, 17];
+      let recap = [];
+      for (let i = 0; i < notes.length; i++) {
+        let note = notes[i];
+        let statut = note >= 12 ? "Reussi" : "A reprendre";
+        recap.push(statut);
+      }
+      let total = recap.length;
+    `);
+    expect(getGlobalValue(interpreter, 'total')).toBe(3);
+    expect(getGlobalValue(interpreter, 'recap')).toEqual(['Reussi', 'A reprendre', 'Reussi']);
   });
 
   it('execute switch case et default', async () => {
@@ -324,6 +341,64 @@ describe('interpreter - coverage des noeuds', () => {
     `);
     expect(getGlobalValue(interpreter, 'msg')).toBe('Bonjour Julien, cours de JS!');
     expect(getGlobalValue(interpreter, 'count')).toBe('Longueur: 28');
+  });
+
+  it('execute l operateur ternaire', async () => {
+    const interpreter = await runProgram(`
+      let age = 17;
+      let statut = age >= 18 ? "majeur" : "mineur";
+      let nested = false ? 1 : true ? 2 : 3;
+    `);
+    expect(getGlobalValue(interpreter, 'statut')).toBe('mineur');
+    expect(getGlobalValue(interpreter, 'nested')).toBe(2);
+  });
+
+  it('n evalue que la branche utile du ternaire', async () => {
+    const interpreter = await runProgram(`
+      let safe1 = true ? 42 : variableInconnue;
+      let safe2 = false ? autreInconnue : 7;
+    `);
+    expect(getGlobalValue(interpreter, 'safe1')).toBe(42);
+    expect(getGlobalValue(interpreter, 'safe2')).toBe(7);
+  });
+
+  it('affiche une erreur frequente claire pour assignation de const', async () => {
+    const ui = createMockUi() as any;
+    ui.log = vi.fn();
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      const a = 1;
+      a = 2;
+    `);
+    const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
+    expect(messages.some((message: string) => message.includes('constante "a"'))).toBe(true);
+    expect(messages.some((message: string) => message.includes('Detail technique'))).toBe(true);
+  });
+
+  it('affiche une erreur frequente claire pour variable deja declaree', async () => {
+    const ui = createMockUi() as any;
+    ui.log = vi.fn();
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let x = 1;
+      let x = 2;
+    `);
+    const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
+    expect(messages.some((message: string) => message.includes('Variable "x" deja declaree'))).toBe(true);
+    expect(messages.some((message: string) => message.includes('Detail technique'))).toBe(true);
+  });
+
+  it('affiche une erreur frequente claire pour lecture sur undefined', async () => {
+    const ui = createMockUi() as any;
+    ui.log = vi.fn();
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let obj;
+      let valeur = obj.propriete;
+    `);
+    const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
+    expect(messages.some((message: string) => message.includes("valeur undefined"))).toBe(true);
+    expect(messages.some((message: string) => message.includes('Detail technique'))).toBe(true);
   });
 
   it('visualise le remplacement progressif des ${} dans un template literal', async () => {

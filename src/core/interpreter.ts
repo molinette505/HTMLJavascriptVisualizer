@@ -26,6 +26,7 @@ import {
     NewExpr,
     ArgumentsNode,
     BinaryExpr,
+    TernaryExpr,
     ReturnStmt,
     TokenType,
 } from './language';
@@ -63,7 +64,7 @@ export class Interpreter {
             this.ui.setEventMode(true);
         } catch (e) { 
             if (e.message !== "STOP") { 
-                this.ui.log("Erreur: " + e.message, "error"); 
+                this.logRuntimeError(e, "Erreur");
                 console.error(e); 
             } else { 
                 this.ui.log("--- Arrêt ---", "info"); 
@@ -90,7 +91,7 @@ export class Interpreter {
             this.ui.log(`> Événement: ${funcName}()`, "info");
             await this.evaluate(callNode);
         } catch (e) {
-            this.ui.log(`Erreur événement: ${e.message}`, "error");
+            this.logRuntimeError(e, "Erreur evenement");
         } finally {
             this.ui.highlightLines([]); 
             this.ui.resetVisuals();
@@ -106,6 +107,26 @@ export class Interpreter {
     stop() { this.shouldStop = true; if (this.resolveNext) this.resolveNext(); }
     async pause(line) { if (this.shouldStop) throw new Error("STOP"); this.ui.skipMode = false; this.ui.setStepButtonState(false); this.ui.resetVisuals(); const activeLines = [...this.callStack, line]; this.ui.highlightLines(activeLines); await this.ui.updateMemory(this.scopeStack); this.ui.setStepButtonState(true); await new Promise(r => { this.resolveNext = r; }); this.ui.setStepButtonState(false); if (this.shouldStop) throw new Error("STOP"); }
     async executeBlock(stmts) { for (const s of stmts) { const res = await this.execute(s); if (res === 'BREAK') return 'BREAK'; if (res && res.__isReturn) return res; } }
+    formatRuntimeError(error) {
+        const raw = (error && error.message) ? String(error.message) : String(error);
+        let friendly = raw;
+        const declared = raw.match(/^Variable (.+) déjà déclarée$/);
+        if (declared) friendly = `Variable "${declared[1]}" deja declaree dans ce scope.`;
+        const constant = raw.match(/^Assignation à une constante (.+)$/);
+        if (constant) friendly = `Impossible de modifier la constante "${constant[1]}".`;
+        const undefinedVar = raw.match(/^Variable (.+) non définie$/);
+        if (undefinedVar) friendly = `Variable "${undefinedVar[1]}" non definie (undefined).`;
+        if (raw.includes('Cannot read properties of undefined')) friendly = "Impossible de lire une propriete d'une valeur undefined.";
+        if (raw.includes('Cannot set properties of undefined')) friendly = "Impossible d'ecrire une propriete sur une valeur undefined.";
+        if (raw.includes('is not a function')) friendly = "Tentative d'appel d'une valeur qui n'est pas une fonction.";
+        if (raw.startsWith('Attendu:')) friendly = `Erreur de syntaxe: ${raw}`;
+        return { raw, friendly };
+    }
+    logRuntimeError(error, prefix = "Erreur") {
+        const { raw, friendly } = this.formatRuntimeError(error);
+        this.ui.log(`${prefix}: ${friendly}`, "error");
+        if (friendly !== raw) this.ui.log(`Detail technique: ${raw}`, "error");
+    }
 
     async execute(node) {
         if (this.shouldStop) return;
@@ -118,7 +139,66 @@ export class Interpreter {
         else if (node instanceof IfStmt) { await this.pause(node.line); const test = await this.evaluate(node.test); this.ui.lockTokens(node.test.domIds||[]); let res; try { if (test) { if (node.consequent instanceof BlockStmt) res = await this.executeBlock(node.consequent.body); else res = await this.execute(node.consequent); } else if (node.alternate) { if (node.alternate instanceof BlockStmt) res = await this.executeBlock(node.alternate.body); else res = await this.execute(node.alternate); } } finally { this.ui.unlockTokens(node.test.domIds||[]); } if (res) return res; }
         else if (node instanceof WhileStmt) { while(true) { await this.pause(node.line); const test = await this.evaluate(node.test); this.ui.lockTokens(node.test.domIds||[]); if(!test) { this.ui.unlockTokens(node.test.domIds||[]); break; } const loopScope = new Scope("Loop", this.currentScope, this.currentScope); this.scopeStack.push(loopScope); const prevScope = this.currentScope; this.currentScope = loopScope; try { const res = (node.body instanceof BlockStmt) ? await this.executeBlock(node.body.body) : await this.execute(node.body); if(res==='BREAK') { this.ui.unlockTokens(node.test.domIds||[]); break; } if(res&&res.__isReturn) return res; } finally { this.currentScope = prevScope; this.scopeStack.pop(); await this.ui.updateMemory(this.scopeStack); } this.ui.unlockTokens(node.test.domIds||[]); } }
         else if (node instanceof DoWhileStmt) { do { const loopScope = new Scope("Loop", this.currentScope, this.currentScope); this.scopeStack.push(loopScope); const prevScope = this.currentScope; this.currentScope = loopScope; try { const res = (node.body instanceof BlockStmt) ? await this.executeBlock(node.body.body) : await this.execute(node.body); if(res==='BREAK') { this.ui.unlockTokens(node.test.domIds||[]); break; } if(res&&res.__isReturn) return res; } finally { this.currentScope = prevScope; this.scopeStack.pop(); await this.ui.updateMemory(this.scopeStack); } await this.pause(node.line); const test = await this.evaluate(node.test); this.ui.lockTokens(node.test.domIds||[]); if(!test) { this.ui.unlockTokens(node.test.domIds||[]); break; } this.ui.unlockTokens(node.test.domIds||[]); } while(true); }
-        else if (node instanceof ForStmt) { const loopScope = new Scope("Loop", this.currentScope, this.currentScope); this.scopeStack.push(loopScope); const prevScope = this.currentScope; this.currentScope = loopScope; try { if(node.init) { if(node.init instanceof VarDecl || node.init instanceof BlockStmt || node.init instanceof MultiVarDecl) await this.execute(node.init); else { await this.pause(node.init.line); await this.evaluate(node.init); } } while(true) { if(node.test) { await this.pause(node.line); const test = await this.evaluate(node.test); this.ui.lockTokens(node.test.domIds||[]); if(!test) { this.ui.unlockTokens(node.test.domIds||[]); break; } } if (node.body instanceof BlockStmt) { for (const stmt of node.body.body) { const res = await this.execute(stmt); if (res === 'BREAK') { if(node.test) this.ui.unlockTokens(node.test.domIds||[]); break; } if (res && res.__isReturn) return res; } } else { const res = await this.execute(node.body); if(res==='BREAK') { if(node.test) this.ui.unlockTokens(node.test.domIds||[]); break; } if(res&&res.__isReturn) return res; } if(node.update) { await this.pause(node.line); await this.evaluate(node.update); } if(node.test) this.ui.unlockTokens(node.test.domIds||[]); } } finally { this.currentScope = prevScope; this.scopeStack.pop(); await this.ui.updateMemory(this.scopeStack); } }
+        else if (node instanceof ForStmt) {
+            const loopScope = new Scope("Loop", this.currentScope, this.currentScope);
+            this.scopeStack.push(loopScope);
+            const prevScope = this.currentScope;
+            this.currentScope = loopScope;
+            try {
+                if (node.init) {
+                    if (node.init instanceof VarDecl || node.init instanceof BlockStmt || node.init instanceof MultiVarDecl) await this.execute(node.init);
+                    else {
+                        await this.pause(node.init.line);
+                        await this.evaluate(node.init);
+                    }
+                }
+                while (true) {
+                    let testLocked = false;
+                    if (node.test) {
+                        await this.pause(node.line);
+                        const test = await this.evaluate(node.test);
+                        this.ui.lockTokens(node.test.domIds || []);
+                        testLocked = true;
+                        if (!test) {
+                            this.ui.unlockTokens(node.test.domIds || []);
+                            break;
+                        }
+                    }
+
+                    const iterationScope = new Scope("Loop", this.currentScope, this.currentScope);
+                    this.scopeStack.push(iterationScope);
+                    const prevIterationScope = this.currentScope;
+                    this.currentScope = iterationScope;
+                    let bodyResult;
+                    try {
+                        bodyResult = (node.body instanceof BlockStmt) ? await this.executeBlock(node.body.body) : await this.execute(node.body);
+                    } finally {
+                        this.currentScope = prevIterationScope;
+                        this.scopeStack.pop();
+                        await this.ui.updateMemory(this.scopeStack);
+                    }
+
+                    if (bodyResult === 'BREAK') {
+                        if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
+                        break;
+                    }
+                    if (bodyResult && bodyResult.__isReturn) {
+                        if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
+                        return bodyResult;
+                    }
+
+                    if (node.update) {
+                        await this.pause(node.line);
+                        await this.evaluate(node.update);
+                    }
+                    if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
+                }
+            } finally {
+                this.currentScope = prevScope;
+                this.scopeStack.pop();
+                await this.ui.updateMemory(this.scopeStack);
+            }
+        }
         else if (node instanceof SwitchStmt) { await this.pause(node.line); const disc = await this.evaluate(node.discriminant); let start=-1; let def=-1; for(let i=0;i<node.cases.length;i++){ const c=node.cases[i]; if(c.test){ await this.pause(c.line); const tv=await this.evaluate(c.test); const v1=JSON.stringify(formatValue(disc)); const v2=JSON.stringify(formatValue(tv)); const compStr=`${v1} === ${v2}`; if(c.test.domIds.length>0){ this.ui.setRawTokenText(c.test.domIds[0], compStr, true); for(let k=1;k<c.test.domIds.length;k++){ const el=document.getElementById(c.test.domIds[k]); if(el){ if(!this.ui.modifiedTokens.has(c.test.domIds[k])) this.ui.modifiedTokens.set(c.test.domIds[k], {original:el.innerText, transient:true}); el.style.display='none'; } } } await this.ui.wait(800); const isMatch=(tv===disc); await this.ui.animateOperationCollapse(c.test.domIds, isMatch); await this.ui.wait(800); if(isMatch){ start=i; break; } } else { def=i; } } if(start===-1) start=def; if(start!==-1){ for(let i=start; i<node.cases.length; i++){ const c=node.cases[i]; for(const s of c.consequent){ const res=await this.execute(s); if(res==='BREAK') return; if(res&&res.__isReturn) return res; } } } }
         else if (node instanceof BreakStmt) { await this.pause(node.line); return 'BREAK'; }
         else if (node instanceof FunctionDecl) { await this.pause(node.line); this.functions[node.name] = node; }
@@ -309,6 +389,7 @@ export class Interpreter {
         if (node instanceof Identifier) { const variable = this.currentScope.get(node.name); if (variable.value && variable.value.type === 'arrow_func') return variable.value; if (variable.value && variable.value.type === 'function_expr') return variable.value; await this.ui.animateRead(node.name, variable.value, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], variable.value, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return variable.value; }
         if (node instanceof MemberExpr) { let obj; if (node.object instanceof Identifier) { const varName = node.object.name; const scopedVar = this.currentScope.get(varName); obj = scopedVar.value; } else { obj = await this.evaluate(node.object); } const prop = node.computed ? await this.evaluate(node.property) : node.property.value; if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) { await this.ui.animateReadHeader(node.object.name, obj.length, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], obj.length, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return obj.length; } if (Array.isArray(obj) && node.object instanceof Identifier) { const val = obj[prop]; await this.ui.animateRead(node.object.name, val, node.domIds[0], prop); this.ui.replaceTokenText(node.domIds[0], val, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return val; } if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) { const len = obj.length; await this.ui.animateRead(node.object.name, len, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], len, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return len; } if (typeof obj === 'string' && node.object instanceof Identifier) { const val = obj[prop]; if (typeof val === 'function') return val.bind(obj); await this.ui.animateRead(node.object.name, val, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], val, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return val; } return obj[prop]; }
         if (node instanceof UpdateExpr) { const name = node.arg.name; const currentVal = this.currentScope.get(name).value; const isInc = node.op === '++'; const newVal = isInc ? currentVal + 1 : currentVal - 1; await this.ui.animateRead(name, currentVal, node.arg.domIds[0]); if (node.prefix) { await this.ui.animateOperationCollapse(node.domIds, newVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0]); await this.ui.updateMemory(this.scopeStack, name, 'write'); return newVal; } else { await this.ui.animateOperationCollapse(node.domIds, currentVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0]); await this.ui.updateMemory(this.scopeStack, name, 'write'); return currentVal; } }
+        if (node instanceof TernaryExpr) { const condition = await this.evaluate(node.test); const result = condition ? await this.evaluate(node.consequent) : await this.evaluate(node.alternate); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof BinaryExpr) { const left = await this.evaluate(node.left); if (node.op === '&&' && !left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, false); await this.ui.wait(800); return false; } if (node.op === '||' && left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, true); await this.ui.wait(800); return true; } const right = await this.evaluate(node.right); let result; switch(node.op) { case '+': result = left + right; break; case '-': result = left - right; break; case '*': result = left * right; break; case '/': result = left / right; break; case '%': result = left % right; break; case '>': result = left > right; break; case '<': result = left < right; break; case '>=': result = left >= right; break; case '<=': result = left <= right; break; case '==': result = left == right; break; case '!=': result = left != right; break; case '===': result = left === right; break; case '!==': result = left !== right; break; case '&&': result = left && right; break; case '||': result = left || right; break; } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof CallExpr) {
             const argValues = []; for (const arg of node.args) argValues.push(await this.evaluate(arg)); await this.ui.wait(800);

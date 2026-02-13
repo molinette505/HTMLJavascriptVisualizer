@@ -8,14 +8,19 @@
 <body>
 
     <div class="toolbar">
-        <div class="playback-controls">
-            <!-- Icones Lucide mises à jour -->
-            <button id="btn-toggle-run" class="icon-btn" onclick="app.toggleRun()"><i data-lucide="play"></i></button>
-            <button id="btn-next" class="icon-btn" onclick="app.stepAnimated()" disabled><i data-lucide="step-forward"></i></button>
-            <button id="btn-skip" class="icon-btn" onclick="app.stepInstant()" disabled><i data-lucide="skip-forward"></i></button>
-            <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" title="Charger une sauvegarde"><i data-lucide="folder-open"></i></button>
-            <button id="btn-trigger" class="icon-btn" onclick="app.triggerEvent()" disabled title="Déclencher l'événement"><i data-lucide="mouse-pointer-click"></i></button>
-            <button id="btn-set-event" class="icon-btn" onclick="app.toggleEventPopup()" title="Nom de la fonction événement"><i data-lucide="pencil"></i></button>
+        <div class="toolbar-main">
+            <div class="toolbar-group execution-controls">
+                <!-- Icones Lucide mises à jour -->
+                <button id="btn-toggle-run" class="icon-btn" onclick="app.toggleRun()"><i data-lucide="play"></i></button>
+                <button id="btn-next" class="icon-btn" onclick="app.stepAnimated()" disabled><i data-lucide="step-forward"></i></button>
+                <button id="btn-skip" class="icon-btn" onclick="app.stepInstant()" disabled><i data-lucide="skip-forward"></i></button>
+            </div>
+            <div class="toolbar-separator" aria-hidden="true"></div>
+            <div class="toolbar-group event-controls">
+                <button id="btn-trigger" class="icon-btn" onclick="app.triggerEvent()" disabled title="Déclencher l'événement"><i data-lucide="mouse-pointer-click"></i></button>
+                <button id="btn-set-event" class="icon-btn" onclick="app.toggleEventPopup()" title="Nom de la fonction événement"><i data-lucide="pencil"></i></button>
+                <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" title="Charger une sauvegarde"><i data-lucide="folder-open"></i></button>
+            </div>
         </div>
         <div class="settings-group">
             <div class="control-group">
