@@ -21,10 +21,10 @@ export const formatValue = (val) => {
     if (isVirtualDomValue(val)) {
         if (val.__domType === 'document') return '[document]';
         if (val.__domType === 'text') return `"${val.textContent}"`;
-        const tag = String(val.tagName || 'node').toUpperCase();
+        const tag = String(val.tagName || 'node').toLowerCase();
         const idPart = val.id ? `#${val.id}` : '';
         const classPart = val.className ? `.${String(val.className).trim().replace(/\s+/g, '.')}` : '';
-        return `<${tag}${idPart}${classPart}>`;
+        return `${tag}${idPart}${classPart}`;
     }
     if (typeof val === 'object' && val !== null && (val.type === 'arrow_func' || val.type === 'function_expr')) return `f (${val.params.join(',')})`;
     return val;

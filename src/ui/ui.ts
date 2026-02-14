@@ -361,28 +361,30 @@ export const ui = {
     animateDomReadToToken: async (node, tokenId) => {
         if (ui.skipMode || ui.isStopping || !node || !tokenId) return;
         await ui.ensureDrawerOpen('dom');
+        await ui.wait(220);
         ui.renderDomPanel();
         const startEl = ui.getDomTreeNodeElement(node);
         const tokenEl = document.getElementById(tokenId);
         if (!startEl || !tokenEl) return;
         startEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-        await ui.flyHelper(formatValue(node), startEl, tokenEl, false);
         await ui.highlightDomNode(node);
+        await ui.wait(120);
+        await ui.flyDomNodeHelper(startEl, tokenEl, false);
     },
     animateTokenToDomNode: async (tokenId, node, value = null) => {
         if (ui.skipMode || ui.isStopping || !tokenId || !node) return;
-        await ui.ensureDrawerOpen('dom');
-        ui.renderDomPanel();
         const tokenEl = document.getElementById(tokenId);
         const target = ui.getDomTreeNodeElement(node);
         if (!tokenEl || !target) return;
         target.scrollIntoView({ behavior: 'auto', block: 'center' });
-        await ui.flyHelper(value === null ? formatValue(node) : value, tokenEl, target, false);
         await ui.highlightDomNode(node);
+        await ui.wait(120);
+        await ui.flyHelper(value === null ? formatValue(node) : value, tokenEl, target, false);
     },
     animateDomMutation: async (targetNode, sourceTokenId = null, payload = null) => {
         if (ui.skipMode || ui.isStopping || !targetNode) return;
         await ui.ensureDrawerOpen('dom');
+        await ui.wait(220);
         ui.renderDomPanel();
         if (sourceTokenId) {
             await ui.animateTokenToDomNode(sourceTokenId, targetNode, payload);
@@ -590,12 +592,7 @@ export const ui = {
         
         if (ui.isStopping) return;
 
-        // Determine Z-Index based on locations
-        // Drawer z-index is 100.
-        // If both elements are in the editor (not in memory container), keep it low.
-        const startInMem = startEl.closest('#memory-container');
-        const endInMem = endEl.closest('#memory-container');
-        const zIndex = (!startInMem && !endInMem) ? 90 : 9999;
+        const zIndex = 12000;
 
         // Re-calculate positions AFTER scroll is complete
         const start = startEl.getBoundingClientRect(); 
@@ -619,6 +616,49 @@ export const ui = {
         flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1)`; 
         flyer.style.transform = `translate(${dx}px, ${dy}px)`;
         await ui.wait(ui.baseDelay); await ui.wait(100); flyer.remove();
+    },
+    flyDomNodeHelper: async (startEl, endEl, delayStart = true) => {
+        if (!startEl || !endEl || ui.isStopping) return;
+        endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await ui.wait(600);
+        if (ui.isStopping) return;
+
+        const start = startEl.getBoundingClientRect();
+        const end = endEl.getBoundingClientRect();
+        if (start.top < 0 || end.top < 0) return;
+
+        const flyer = startEl.cloneNode(true);
+        flyer.classList.add('flying-dom-node');
+        flyer.removeAttribute('id');
+        flyer.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+        document.body.appendChild(flyer);
+        flyer.style.position = 'fixed';
+        flyer.style.pointerEvents = 'none';
+        flyer.style.zIndex = '12050';
+        flyer.style.margin = '0';
+        flyer.style.marginLeft = '0';
+        flyer.style.display = 'inline-flex';
+        flyer.style.width = 'max-content';
+        flyer.style.maxWidth = 'none';
+
+        const fRect = flyer.getBoundingClientRect();
+        const startX = start.left + (start.width - fRect.width) / 2;
+        const startY = start.top + (start.height - fRect.height) / 2;
+        flyer.style.left = `${startX}px`;
+        flyer.style.top = `${startY}px`;
+        if (delayStart) await ui.wait(150);
+        if (ui.isStopping) { flyer.remove(); return; }
+        const endX = end.left + (end.width - fRect.width) / 2;
+        const endY = end.top + (end.height - fRect.height) / 2;
+        const dx = endX - startX;
+        const dy = endY - startY;
+        await ui.wait(20);
+        flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
+        flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
+        flyer.style.opacity = '0.95';
+        await ui.wait(ui.baseDelay);
+        await ui.wait(100);
+        flyer.remove();
     },
 
     animateAssignment: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const tokenEl = document.getElementById(targetTokenId); const memId = ui.getMemoryValueElementId(varName, index); ui.ensureVisible(memId); const memEl = document.getElementById(memId); await ui.flyHelper(value, tokenEl, memEl); },
