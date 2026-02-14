@@ -263,17 +263,7 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
         const startY = sourceRect.top + sourceRect.height / 2;
         const endX = destinationRect.left + destinationRect.width / 2;
         const endY = destinationRect.top + destinationRect.height / 2;
-        const dx = endX - startX;
-        const dy = endY - startY;
-        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-        const perpX = -dy / distance;
-        const perpY = dx / distance;
-        const bend = Math.max(24, Math.min(120, distance * 0.18));
-        const c1X = startX + dx * 0.33 + perpX * bend;
-        const c1Y = startY + dy * 0.33 + perpY * bend;
-        const c2X = startX + dx * 0.66 + perpX * bend;
-        const c2Y = startY + dy * 0.66 + perpY * bend;
-        const pathData = `M ${startX} ${startY} C ${c1X} ${c1Y}, ${c2X} ${c2Y}, ${endX} ${endY}`;
+        const pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
         svg.setAttribute('width', String(window.innerWidth));
         svg.setAttribute('height', String(window.innerHeight));
         svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
