@@ -50,6 +50,17 @@ app.initScenarioLoader();
 ui.renderDomPanel();
 ui.switchTab('memory');
 
+const closeDrawerForEditorFocus = () => {
+    if (window.innerWidth >= 800) return;
+    const rightPanel = document.getElementById('right-panel');
+    if (!rightPanel) return;
+    rightPanel.classList.remove('open');
+    rightPanel.style.height = '';
+    ui.isDrawerOpen = false;
+};
+
+document.getElementById('code-input').addEventListener('focus', closeDrawerForEditorFocus);
+
 // Drawer Drag Logic
 const handle = document.getElementById('drawer-handle');
 const panel = document.getElementById('right-panel');

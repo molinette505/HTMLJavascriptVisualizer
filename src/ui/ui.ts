@@ -439,6 +439,16 @@ export const ui = {
     stopAnimations: () => {
         document.querySelectorAll('.flying-element').forEach(el => el.remove());
         document.querySelectorAll('.flying-dom-node').forEach(el => el.remove());
+        document.querySelectorAll('.flow-link-line').forEach(el => el.remove());
+        document.querySelectorAll('.dom-group-highlight-box').forEach(el => el.remove());
+        document.querySelectorAll('.dom-insert-target').forEach(el => el.remove());
+        document.querySelectorAll('.flow-link-highlight').forEach(el => el.classList.remove('flow-link-highlight'));
+        document.querySelectorAll('.dom-highlight').forEach(el => el.classList.remove('dom-highlight'));
+        document.querySelectorAll('.dom-parent-highlight').forEach(el => el.classList.remove('dom-parent-highlight'));
+        document.querySelectorAll('.dom-replaced-highlight').forEach(el => el.classList.remove('dom-replaced-highlight'));
+        document.querySelectorAll('.dom-insert-space').forEach(el => el.classList.remove('dom-insert-space'));
+        document.querySelectorAll('.dom-remove-leave').forEach(el => el.classList.remove('dom-remove-leave'));
+        document.querySelectorAll('.dom-attr-highlight').forEach(el => el.classList.remove('dom-attr-highlight'));
     },
 
     renderCode: (tokens) => {
@@ -714,7 +724,16 @@ export const ui = {
         await ui.ensureDrawerOpen('dom');
         await ui.wait(220);
         ui.renderDomPanel();
-        const targetEl = ui.getDomTreeNodeElement(targetNode);
+        let targetEl = ui.getDomTreeNodeElement(targetNode);
+        if (!targetEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.renderDomPanel();
+            return;
+        }
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await ui.wait(420);
+        ui.renderDomPanel();
+        targetEl = ui.getDomTreeNodeElement(targetNode);
         if (!targetEl) {
             if (typeof applyMutation === 'function') await applyMutation();
             ui.renderDomPanel();
@@ -737,7 +756,6 @@ export const ui = {
             : null;
         const flyTarget = groupHighlight.box || insertionTarget || targetEl;
         const flowEls = [sourceEl, targetEl].filter(Boolean);
-        targetEl.scrollIntoView({ behavior: 'auto', block: 'center' });
         targetEl.classList.add('dom-parent-highlight');
         if (!groupHighlight.box) replacedEls.forEach((nodeEl) => nodeEl.classList.add('dom-replaced-highlight'));
         ui.setDomAttributeHighlight(attrEls, true);
@@ -827,7 +845,16 @@ export const ui = {
         await ui.ensureDrawerOpen('dom');
         await ui.wait(220);
         ui.renderDomPanel();
-        const parentEl = ui.getDomTreeNodeElement(parentNode);
+        let parentEl = ui.getDomTreeNodeElement(parentNode);
+        if (!parentEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.renderDomPanel();
+            return;
+        }
+        parentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await ui.wait(420);
+        ui.renderDomPanel();
+        parentEl = ui.getDomTreeNodeElement(parentNode);
         if (!parentEl) {
             if (typeof applyMutation === 'function') await applyMutation();
             ui.renderDomPanel();
@@ -839,7 +866,6 @@ export const ui = {
         const removeTarget = removedGroup.box || removedEl || parentEl;
         const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
         const flowEls = [sourceEl, removeTarget].filter(Boolean);
-        parentEl.scrollIntoView({ behavior: 'auto', block: 'center' });
         parentEl.classList.add('dom-parent-highlight');
         if (!removedGroup.box && removedEl) removedEl.classList.add('dom-replaced-highlight');
         if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
