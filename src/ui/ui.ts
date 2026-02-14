@@ -194,6 +194,107 @@ const createDomFlyBadgeElement = (node) => {
     return badge;
 };
 
+let flowGuideCounter = 1;
+
+const createFlowGuideLine = (sourceEl, destinationEl) => {
+    if (!sourceEl || !destinationEl || typeof document === 'undefined') return { stop: () => {} };
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.classList.add('flow-link-line');
+    const gradientId = `flow-link-gradient-${flowGuideCounter++}`;
+
+    const defs = document.createElementNS(svgNS, 'defs');
+    const gradient = document.createElementNS(svgNS, 'linearGradient');
+    gradient.setAttribute('id', gradientId);
+    gradient.setAttribute('x1', '0%');
+    gradient.setAttribute('y1', '0%');
+    gradient.setAttribute('x2', '100%');
+    gradient.setAttribute('y2', '0%');
+
+    const stopStart = document.createElementNS(svgNS, 'stop');
+    stopStart.setAttribute('offset', '0%');
+    stopStart.setAttribute('stop-color', '#67e8f9');
+    stopStart.setAttribute('stop-opacity', '1');
+    gradient.appendChild(stopStart);
+
+    const stopMid = document.createElementNS(svgNS, 'stop');
+    stopMid.setAttribute('offset', '50%');
+    stopMid.setAttribute('stop-color', '#60a5fa');
+    stopMid.setAttribute('stop-opacity', '1');
+    gradient.appendChild(stopMid);
+
+    const stopEnd = document.createElementNS(svgNS, 'stop');
+    stopEnd.setAttribute('offset', '100%');
+    stopEnd.setAttribute('stop-color', '#3b82f6');
+    stopEnd.setAttribute('stop-opacity', '1');
+    gradient.appendChild(stopEnd);
+
+    defs.appendChild(gradient);
+    svg.appendChild(defs);
+
+    const glowPath = document.createElementNS(svgNS, 'path');
+    glowPath.classList.add('flow-link-path', 'flow-link-path-glow');
+    glowPath.setAttribute('stroke', `url(#${gradientId})`);
+    svg.appendChild(glowPath);
+
+    const corePath = document.createElementNS(svgNS, 'path');
+    corePath.classList.add('flow-link-path', 'flow-link-path-core');
+    corePath.setAttribute('stroke', `url(#${gradientId})`);
+    svg.appendChild(corePath);
+
+    const sourceDot = document.createElementNS(svgNS, 'circle');
+    sourceDot.classList.add('flow-link-endpoint', 'source');
+    sourceDot.setAttribute('r', '4.5');
+    svg.appendChild(sourceDot);
+
+    const destinationDot = document.createElementNS(svgNS, 'circle');
+    destinationDot.classList.add('flow-link-endpoint', 'destination');
+    destinationDot.setAttribute('r', '5.2');
+    svg.appendChild(destinationDot);
+
+    document.body.appendChild(svg);
+    let rafId = null;
+    let active = true;
+    const update = () => {
+        if (!active) return;
+        const sourceRect = sourceEl.getBoundingClientRect();
+        const destinationRect = destinationEl.getBoundingClientRect();
+        const startX = sourceRect.left + sourceRect.width / 2;
+        const startY = sourceRect.top + sourceRect.height / 2;
+        const endX = destinationRect.left + destinationRect.width / 2;
+        const endY = destinationRect.top + destinationRect.height / 2;
+        const dx = endX - startX;
+        const dy = endY - startY;
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        const perpX = -dy / distance;
+        const perpY = dx / distance;
+        const bend = Math.max(24, Math.min(120, distance * 0.18));
+        const c1X = startX + dx * 0.33 + perpX * bend;
+        const c1Y = startY + dy * 0.33 + perpY * bend;
+        const c2X = startX + dx * 0.66 + perpX * bend;
+        const c2Y = startY + dy * 0.66 + perpY * bend;
+        const pathData = `M ${startX} ${startY} C ${c1X} ${c1Y}, ${c2X} ${c2Y}, ${endX} ${endY}`;
+        svg.setAttribute('width', String(window.innerWidth));
+        svg.setAttribute('height', String(window.innerHeight));
+        svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
+        glowPath.setAttribute('d', pathData);
+        corePath.setAttribute('d', pathData);
+        sourceDot.setAttribute('cx', String(startX));
+        sourceDot.setAttribute('cy', String(startY));
+        destinationDot.setAttribute('cx', String(endX));
+        destinationDot.setAttribute('cy', String(endY));
+        rafId = requestAnimationFrame(update);
+    };
+    update();
+    return {
+        stop: () => {
+            active = false;
+            if (rafId) cancelAnimationFrame(rafId);
+            if (svg.parentElement) svg.remove();
+        }
+    };
+};
+
 export const ui = {
     modifiedTokens: new Map(), lockedTokens: new Set(), 
     speedMultiplier: 1, baseDelay: 800, globalScale: 14, 
@@ -542,40 +643,45 @@ export const ui = {
     },
     flyDomNodeFromToken: async (node, startEl, endEl, delayStart = true) => {
         if (!node || !startEl || !endEl || ui.isStopping) return;
-        endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await ui.wait(600);
-        if (ui.isStopping) return;
-        const start = startEl.getBoundingClientRect();
-        const end = endEl.getBoundingClientRect();
-        if (start.top < 0 || end.top < 0) return;
-        const flyer = createDomFlyBadgeElement(node);
-        flyer.classList.add('flying-dom-node');
-        document.body.appendChild(flyer);
-        flyer.style.position = 'fixed';
-        flyer.style.pointerEvents = 'none';
-        flyer.style.zIndex = '12060';
-        flyer.style.margin = '0';
-        flyer.style.display = 'inline-flex';
-        flyer.style.width = 'max-content';
-        flyer.style.maxWidth = 'none';
-        const fRect = flyer.getBoundingClientRect();
-        const startX = start.left + (start.width - fRect.width) / 2;
-        const startY = start.top + (start.height - fRect.height) / 2;
-        flyer.style.left = `${startX}px`;
-        flyer.style.top = `${startY}px`;
-        if (delayStart) await ui.wait(150);
-        if (ui.isStopping) { flyer.remove(); return; }
-        const endX = end.left + (end.width - fRect.width) / 2;
-        const endY = end.top + (end.height - fRect.height) / 2;
-        const dx = endX - startX;
-        const dy = endY - startY;
-        await ui.wait(20);
-        flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
-        flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
-        flyer.style.opacity = '0.95';
-        await ui.wait(ui.baseDelay);
-        await ui.wait(100);
-        flyer.remove();
+        const guide = createFlowGuideLine(startEl, endEl);
+        try {
+            endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            await ui.wait(600);
+            if (ui.isStopping) return;
+            const start = startEl.getBoundingClientRect();
+            const end = endEl.getBoundingClientRect();
+            if (start.top < 0 || end.top < 0) return;
+            const flyer = createDomFlyBadgeElement(node);
+            flyer.classList.add('flying-dom-node');
+            document.body.appendChild(flyer);
+            flyer.style.position = 'fixed';
+            flyer.style.pointerEvents = 'none';
+            flyer.style.zIndex = '12060';
+            flyer.style.margin = '0';
+            flyer.style.display = 'inline-flex';
+            flyer.style.width = 'max-content';
+            flyer.style.maxWidth = 'none';
+            const fRect = flyer.getBoundingClientRect();
+            const startX = start.left + (start.width - fRect.width) / 2;
+            const startY = start.top + (start.height - fRect.height) / 2;
+            flyer.style.left = `${startX}px`;
+            flyer.style.top = `${startY}px`;
+            if (delayStart) await ui.wait(150);
+            if (ui.isStopping) { flyer.remove(); return; }
+            const endX = end.left + (end.width - fRect.width) / 2;
+            const endY = end.top + (end.height - fRect.height) / 2;
+            const dx = endX - startX;
+            const dy = endY - startY;
+            await ui.wait(20);
+            flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
+            flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
+            flyer.style.opacity = '0.95';
+            await ui.wait(ui.baseDelay);
+            await ui.wait(100);
+            flyer.remove();
+        } finally {
+            guide.stop();
+        }
     },
     animateDomPropertyMutation: async ({ targetNode, sourceTokenId = null, payload = null, property = '', applyMutation = null }) => {
         if (ui.skipMode || ui.isStopping || !targetNode) {
@@ -915,81 +1021,91 @@ export const ui = {
 
     flyHelper: async (value, startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;
-        // Scroll destination into view first
-        endEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
-        
-        // Wait for scroll to reliably finish (fixed timing issue)
-        await ui.wait(600); 
-        
-        if (ui.isStopping) return;
+        const guide = createFlowGuideLine(startEl, endEl);
+        try {
+            // Scroll destination into view first
+            endEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+            
+            // Wait for scroll to reliably finish (fixed timing issue)
+            await ui.wait(600); 
+            
+            if (ui.isStopping) return;
 
-        const zIndex = 12000;
+            const zIndex = 12000;
 
-        // Re-calculate positions AFTER scroll is complete
-        const start = startEl.getBoundingClientRect(); 
-        const end = endEl.getBoundingClientRect();
-        
-        if (start.top < 0 || end.top < 0) return; 
-        const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = valueToVisualText(value); document.body.appendChild(flyer);
-        
-        flyer.style.zIndex = zIndex; 
+            // Re-calculate positions AFTER scroll is complete
+            const start = startEl.getBoundingClientRect(); 
+            const end = endEl.getBoundingClientRect();
+            
+            if (start.top < 0 || end.top < 0) return; 
+            const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = valueToVisualText(value); document.body.appendChild(flyer);
+            
+            flyer.style.zIndex = zIndex; 
 
-        const fRect = flyer.getBoundingClientRect();
-        const startX = start.left + (start.width - fRect.width) / 2;
-        const startY = start.top + (start.height - fRect.height) / 2;
-        flyer.style.left = `${startX}px`; flyer.style.top = `${startY}px`;
-        if (delayStart) await ui.wait(150);
-        if (ui.isStopping) { flyer.remove(); return; }
-        const endX = end.left + (end.width - fRect.width) / 2;
-        const endY = end.top + (end.height - fRect.height) / 2;
-        const dx = endX - startX; const dy = endY - startY;
-        await ui.wait(20);
-        flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1)`; 
-        flyer.style.transform = `translate(${dx}px, ${dy}px)`;
-        await ui.wait(ui.baseDelay); await ui.wait(100); flyer.remove();
+            const fRect = flyer.getBoundingClientRect();
+            const startX = start.left + (start.width - fRect.width) / 2;
+            const startY = start.top + (start.height - fRect.height) / 2;
+            flyer.style.left = `${startX}px`; flyer.style.top = `${startY}px`;
+            if (delayStart) await ui.wait(150);
+            if (ui.isStopping) { flyer.remove(); return; }
+            const endX = end.left + (end.width - fRect.width) / 2;
+            const endY = end.top + (end.height - fRect.height) / 2;
+            const dx = endX - startX; const dy = endY - startY;
+            await ui.wait(20);
+            flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1)`; 
+            flyer.style.transform = `translate(${dx}px, ${dy}px)`;
+            await ui.wait(ui.baseDelay); await ui.wait(100); flyer.remove();
+        } finally {
+            guide.stop();
+        }
     },
     flyDomNodeHelper: async (startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;
-        endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await ui.wait(600);
-        if (ui.isStopping) return;
+        const guide = createFlowGuideLine(startEl, endEl);
+        try {
+            endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            await ui.wait(600);
+            if (ui.isStopping) return;
 
-        const start = startEl.getBoundingClientRect();
-        const end = endEl.getBoundingClientRect();
-        if (start.top < 0 || end.top < 0) return;
+            const start = startEl.getBoundingClientRect();
+            const end = endEl.getBoundingClientRect();
+            if (start.top < 0 || end.top < 0) return;
 
-        const flyer = startEl.cloneNode(true);
-        flyer.classList.add('flying-dom-node');
-        flyer.removeAttribute('id');
-        flyer.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
-        document.body.appendChild(flyer);
-        flyer.style.position = 'fixed';
-        flyer.style.pointerEvents = 'none';
-        flyer.style.zIndex = '12050';
-        flyer.style.margin = '0';
-        flyer.style.marginLeft = '0';
-        flyer.style.display = 'inline-flex';
-        flyer.style.width = 'max-content';
-        flyer.style.maxWidth = 'none';
+            const flyer = startEl.cloneNode(true);
+            flyer.classList.add('flying-dom-node');
+            flyer.removeAttribute('id');
+            flyer.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+            document.body.appendChild(flyer);
+            flyer.style.position = 'fixed';
+            flyer.style.pointerEvents = 'none';
+            flyer.style.zIndex = '12050';
+            flyer.style.margin = '0';
+            flyer.style.marginLeft = '0';
+            flyer.style.display = 'inline-flex';
+            flyer.style.width = 'max-content';
+            flyer.style.maxWidth = 'none';
 
-        const fRect = flyer.getBoundingClientRect();
-        const startX = start.left + (start.width - fRect.width) / 2;
-        const startY = start.top + (start.height - fRect.height) / 2;
-        flyer.style.left = `${startX}px`;
-        flyer.style.top = `${startY}px`;
-        if (delayStart) await ui.wait(150);
-        if (ui.isStopping) { flyer.remove(); return; }
-        const endX = end.left + (end.width - fRect.width) / 2;
-        const endY = end.top + (end.height - fRect.height) / 2;
-        const dx = endX - startX;
-        const dy = endY - startY;
-        await ui.wait(20);
-        flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
-        flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
-        flyer.style.opacity = '0.95';
-        await ui.wait(ui.baseDelay);
-        await ui.wait(100);
-        flyer.remove();
+            const fRect = flyer.getBoundingClientRect();
+            const startX = start.left + (start.width - fRect.width) / 2;
+            const startY = start.top + (start.height - fRect.height) / 2;
+            flyer.style.left = `${startX}px`;
+            flyer.style.top = `${startY}px`;
+            if (delayStart) await ui.wait(150);
+            if (ui.isStopping) { flyer.remove(); return; }
+            const endX = end.left + (end.width - fRect.width) / 2;
+            const endY = end.top + (end.height - fRect.height) / 2;
+            const dx = endX - startX;
+            const dy = endY - startY;
+            await ui.wait(20);
+            flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
+            flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
+            flyer.style.opacity = '0.95';
+            await ui.wait(ui.baseDelay);
+            await ui.wait(100);
+            flyer.remove();
+        } finally {
+            guide.stop();
+        }
     },
 
     animateAssignment: async (varName, value, targetTokenId, index = null) => {

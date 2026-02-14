@@ -591,6 +591,44 @@
             border-radius: 6px;
             transition: box-shadow 0.12s ease, background-color 0.12s ease;
         }
+        .flow-link-line {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 11990;
+            overflow: visible;
+        }
+        .flow-link-path {
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+        }
+        .flow-link-path-glow {
+            stroke-width: 9px;
+            opacity: 0.2;
+            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
+            animation: flowLinePulse 0.95s ease-in-out infinite alternate;
+        }
+        .flow-link-path-core {
+            stroke-width: 2.6px;
+            stroke-dasharray: 10 8;
+            opacity: 0.98;
+            animation: flowLineDash 0.65s linear infinite;
+        }
+        .flow-link-endpoint {
+            stroke: rgba(219, 234, 254, 0.9);
+            stroke-width: 1.1;
+            filter: drop-shadow(0 0 5px rgba(96, 165, 250, 0.6));
+        }
+        .flow-link-endpoint.source {
+            fill: rgba(125, 211, 252, 0.95);
+        }
+        .flow-link-endpoint.destination {
+            fill: rgba(59, 130, 246, 0.98);
+        }
         .val-replacement { display: inline-block; background: rgba(34, 211, 238, 0.2); border-radius: 3px; padding: 0 2px; color: #fff; font-weight: bold; }
         .op-result { background: rgba(167, 139, 250, 0.3); border-radius: 3px; color: #fff; }
         .cell-entry { animation: cellEntry calc(0.3s * var(--time-scale)) ease-out forwards; }
@@ -603,6 +641,8 @@
         @keyframes flashWrite { 0% { background: rgba(59, 130, 246, 0.5); } 100% { background: transparent; } }
         @keyframes flashRead { 0% { background: rgba(34, 211, 238, 0.4); } 100% { background: transparent; } }
         @keyframes flashConsole { 0% { background: rgba(255, 255, 255, 0.15); } 100% { background: transparent; } }
+        @keyframes flowLineDash { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -36; } }
+        @keyframes flowLinePulse { from { opacity: 0.16; } to { opacity: 0.28; } }
 
         @keyframes domPulse {
             0% { transform: scale(0.98); }
