@@ -565,6 +565,7 @@ export class Interpreter {
                 let domOwner = null;
                 let domOwnerName = null;
                 let classListProxy = false;
+                let styleProxy = false;
                 if (node.callee.object instanceof Identifier) {
                     arrName = node.callee.object.name;
                     const scopedVar = this.currentScope.get(arrName);
@@ -585,6 +586,21 @@ export class Interpreter {
                     if (domOwner && (typeof domOwner === 'object' || typeof domOwner === 'function')) {
                         obj = domOwner.classList;
                         classListProxy = true;
+                    } else {
+                        obj = undefined;
+                    }
+                } else if (node.callee.object instanceof MemberExpr && !node.callee.object.computed && node.callee.object.property && node.callee.object.property.value === 'style') {
+                    const ownerExpr = node.callee.object.object;
+                    if (ownerExpr instanceof Identifier) {
+                        domOwnerName = ownerExpr.name;
+                        const ownerScopedVar = this.currentScope.get(domOwnerName);
+                        domOwner = ownerScopedVar.value;
+                    } else {
+                        domOwner = await this.evaluate(ownerExpr);
+                    }
+                    if (domOwner && (typeof domOwner === 'object' || typeof domOwner === 'function')) {
+                        obj = domOwner.style;
+                        styleProxy = true;
                     } else {
                         obj = undefined;
                     }
@@ -611,10 +627,10 @@ export class Interpreter {
                 if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
                     if (typeof obj[method] === 'function') {
-                        if (classListProxy && domOwner && method === 'add') {
+                        if (classListProxy && domOwner && (method === 'add' || method === 'remove')) {
                             let result;
                             const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
-                            const payload = argValues.length > 0 ? argValues[0] : '';
+                            const payload = argValues.length > 0 ? argValues.join(' ') : '';
                             const domNodeVisible = this.isDomNodeVisible(domOwner);
                             if (!domNodeVisible && domOwnerName && domOwnerName !== 'document') {
                                 await this.ui.updateMemory(this.scopeStack, domOwnerName, 'read');
@@ -632,6 +648,48 @@ export class Interpreter {
                                         sourceTokenId,
                                         payload,
                                         property: 'class',
+                                        applyMutation: async () => { result = obj[method](...argValues); }
+                                    });
+                                } else {
+                                    result = obj[method](...argValues);
+                                    this.refreshDomView();
+                                    if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(domOwner, sourceTokenId, payload);
+                                }
+                            }
+                            this.refreshDomView();
+                            if (domOwnerName && domOwnerName !== 'document') await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write');
+                            this.ui.replaceTokenText(node.domIds[0], result, true);
+                            this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                            await this.ui.wait(800);
+                            return result;
+                        }
+                        if (styleProxy && domOwner && (method === 'addProperty' || method === 'setProperty' || method === 'removeProperty')) {
+                            let result;
+                            const sourceTokenId = (method === 'removeProperty')
+                                ? (node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null)
+                                : ((node.args.length > 1 && node.args[1].domIds)
+                                    ? this.getExpressionDisplayTokenId(node.args[1])
+                                    : (node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null));
+                            const payload = (method === 'removeProperty')
+                                ? (argValues.length > 0 ? argValues[0] : '')
+                                : (argValues.length > 1 ? argValues[1] : '');
+                            const domNodeVisible = this.isDomNodeVisible(domOwner);
+                            if (!domNodeVisible && domOwnerName && domOwnerName !== 'document') {
+                                await this.ui.updateMemory(this.scopeStack, domOwnerName, 'read');
+                                await this.ui.wait(220);
+                            }
+                            if (!domNodeVisible) {
+                                result = obj[method](...argValues);
+                                if (domOwnerName && domOwnerName !== 'document') {
+                                    await this.ui.animateAssignment(domOwnerName, domOwner, sourceTokenId);
+                                }
+                            } else {
+                                if (typeof this.ui.animateDomPropertyMutation === 'function') {
+                                    await this.ui.animateDomPropertyMutation({
+                                        targetNode: domOwner,
+                                        sourceTokenId,
+                                        payload,
+                                        property: 'style',
                                         applyMutation: async () => { result = obj[method](...argValues); }
                                     });
                                 } else {
@@ -739,6 +797,43 @@ export class Interpreter {
                                         result = obj[method](...argValues);
                                         this.refreshDomView();
                                         if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, attrValue);
+                                    }
+                                }
+                                this.refreshDomView();
+                                if (arrName && arrName !== 'document') await this.ui.updateMemory(this.scopeStack, arrName, 'write');
+                                this.ui.replaceTokenText(node.domIds[0], result, true);
+                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                await this.ui.wait(800);
+                                return result;
+                            }
+                            if (method === 'removeAttribute') {
+                                const attrName = (argValues.length > 0) ? String(argValues[0]) : '';
+                                const sourceTokenId = (node.args.length > 0 && node.args[0].domIds)
+                                    ? this.getExpressionDisplayTokenId(node.args[0])
+                                    : null;
+                                const domNodeVisible = this.isDomNodeVisible(obj);
+                                if (!domNodeVisible && arrName && arrName !== 'document') {
+                                    await this.ui.updateMemory(this.scopeStack, arrName, 'read');
+                                    await this.ui.wait(220);
+                                }
+                                if (!domNodeVisible) {
+                                    result = obj[method](...argValues);
+                                    if (arrName && arrName !== 'document') {
+                                        await this.ui.animateAssignment(arrName, obj, sourceTokenId);
+                                    }
+                                } else {
+                                    if (typeof this.ui.animateDomPropertyMutation === 'function') {
+                                        await this.ui.animateDomPropertyMutation({
+                                            targetNode: obj,
+                                            sourceTokenId,
+                                            payload: '',
+                                            property: attrName,
+                                            applyMutation: async () => { result = obj[method](...argValues); }
+                                        });
+                                    } else {
+                                        result = obj[method](...argValues);
+                                        this.refreshDomView();
+                                        if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, attrName);
                                     }
                                 }
                                 this.refreshDomView();

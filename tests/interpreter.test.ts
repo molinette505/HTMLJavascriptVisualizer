@@ -271,6 +271,77 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'sameRef')).toBe(true);
   });
 
+  it('supporte les selecteurs CSS complexes (combinators + pseudo-selecteurs)', async () => {
+    const interpreter = await runProgram(`
+      let root = document.createElement("div");
+      root.id = "root";
+      root.className = "app";
+
+      let list = document.createElement("ul");
+      list.id = "list";
+
+      let li1 = document.createElement("li");
+      li1.className = "item";
+      li1.innerText = "A";
+
+      let li2 = document.createElement("li");
+      li2.className = "item active";
+      li2.innerText = "B";
+
+      let li3 = document.createElement("li");
+      li3.className = "item";
+      li3.innerText = "C";
+
+      let badge = document.createElement("span");
+      badge.className = "badge";
+      badge.innerText = "HOT";
+      li2.appendChild(badge);
+
+      list.appendChild(li1);
+      list.appendChild(li2);
+      list.appendChild(li3);
+
+      let side = document.createElement("aside");
+      side.className = "panel";
+
+      root.appendChild(list);
+      root.appendChild(side);
+      document.appendChild(root);
+
+      let byChild = document.querySelector("ul#list > li.active");
+      let byDesc = document.querySelector("div#root li span.badge");
+      let byAdjacent = document.querySelector("ul#list + aside.panel");
+      let bySibling = document.querySelector("li.active ~ li:last-child");
+      let byNth = document.querySelector("ul#list > li:nth-child(2)");
+      let byFirst = document.querySelector("ul#list > li:first-child");
+      let byNot = document.querySelector("ul#list > li:not(.active)");
+      let byGroup = document.querySelector("section.none, ul#list > li.active");
+      let byAttr = document.querySelector("li[class~='active']");
+      let byRoot = document.querySelector(":root");
+
+      let okChild = byChild === li2;
+      let okDesc = byDesc === badge;
+      let okAdjacent = byAdjacent === side;
+      let okSibling = bySibling === li3;
+      let okNth = byNth === li2;
+      let okFirst = byFirst === li1;
+      let okNot = byNot === li1;
+      let okGroup = byGroup === li2;
+      let okAttr = byAttr === li2;
+      let rootTag = byRoot.tagName;
+    `);
+    expect(getGlobalValue(interpreter, 'okChild')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okDesc')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okAdjacent')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okSibling')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okNth')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okFirst')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okNot')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okGroup')).toBe(true);
+    expect(getGlobalValue(interpreter, 'okAttr')).toBe(true);
+    expect(getGlobalValue(interpreter, 'rootTag')).toBe('body');
+  });
+
   it('execute innerHTML, value, appendChild et removeChild', async () => {
     const interpreter = await runProgram(`
       let input = document.createElement("input");
@@ -289,6 +360,37 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'before')).toBe('Alice');
     expect(getGlobalValue(interpreter, 'label')).toBe('PROMO');
     expect(getGlobalValue(interpreter, 'stillThere')).toBe(false);
+  });
+
+  it('supporte setAttribute/removeAttribute, classList.add/remove, style.addProperty/removeProperty', async () => {
+    const interpreter = await runProgram(`
+      let card = document.createElement("div");
+      card.setAttribute("id", "card-1");
+      card.setAttribute("data-state", "draft");
+      card.classList.add("box", "selected", "focus");
+      card.classList.remove("selected", "none");
+      card.style.addProperty("color", "red");
+      card.style.addProperty("background-color", "black");
+      let styleBefore = card.getAttribute("style");
+      let removedColor = card.style.removeProperty("color");
+      let styleAfter = card.getAttribute("style");
+      let colorAfter = card.style.getPropertyValue("color");
+      card.removeAttribute("data-state");
+      let stateAfter = card.getAttribute("data-state");
+      document.appendChild(card);
+      let found = document.querySelector("div#card-1.box.focus:not([data-state])");
+      let sameNode = found === card;
+      let classes = card.className;
+    `);
+    expect(getGlobalValue(interpreter, 'styleBefore')).toContain('color: red');
+    expect(getGlobalValue(interpreter, 'styleBefore')).toContain('background-color: black');
+    expect(getGlobalValue(interpreter, 'removedColor')).toBe('red');
+    expect(getGlobalValue(interpreter, 'styleAfter')).toContain('background-color: black');
+    expect(getGlobalValue(interpreter, 'styleAfter')).not.toContain('color: red');
+    expect(getGlobalValue(interpreter, 'colorAfter')).toBe('');
+    expect(getGlobalValue(interpreter, 'stateAfter')).toBeUndefined();
+    expect(getGlobalValue(interpreter, 'sameNode')).toBe(true);
+    expect(getGlobalValue(interpreter, 'classes')).toBe('box focus');
   });
 
   it('partage la meme reference entre deux variables array', async () => {
