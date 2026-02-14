@@ -446,28 +446,6 @@
         .drawer-content { flex: 1; overflow: hidden; display: none; position: relative; }
         .drawer-content.active { display: flex; flex-direction: column; }
 
-        .dom-view-tabs {
-            display: flex;
-            gap: 8px;
-            padding: 10px;
-            border-bottom: 1px solid var(--border);
-            background: #131d30;
-        }
-        .dom-mode-btn {
-            border: 1px solid var(--border);
-            background: #1f2a40;
-            color: var(--text-dim);
-            border-radius: 8px;
-            padding: 6px 10px;
-            font-weight: 700;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .dom-mode-btn.active {
-            color: #fff;
-            border-color: var(--accent);
-            background: rgba(59, 130, 246, 0.35);
-        }
         .dom-view {
             display: none;
             flex: 1;
@@ -476,21 +454,6 @@
         }
         .dom-view.active {
             display: block;
-        }
-        #dom-render-canvas {
-            min-height: 100%;
-            background: #eef2f7;
-            color: #1f2937;
-            padding: 16px;
-        }
-        #dom-view-html {
-            margin: 0;
-            padding: 14px;
-            color: #c8d6f1;
-            font-family: var(--code-font-family);
-            font-size: 13px;
-            line-height: 1.45;
-            white-space: pre;
         }
         #dom-view-tree {
             padding: 12px;
@@ -512,9 +475,23 @@
         .dom-tree-tag { color: #a855f7; font-weight: 700; }
         .dom-tree-id { color: #60a5fa; font-weight: 700; }
         .dom-tree-class { color: #94a3b8; }
+        .dom-tree-attrs { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+        .dom-tree-attr {
+            background: rgba(148, 163, 184, 0.15);
+            color: #cbd5e1;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            padding: 1px 6px;
+            border-radius: 999px;
+            font-size: 11px;
+        }
         .dom-tree-text { border-style: dashed; }
         .dom-tree-text-label { color: #f59e0b; font-weight: 700; }
         .dom-tree-empty { color: var(--text-dim); padding: 6px; }
+        .dom-tree-node.dom-highlight {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+            animation: domPulse calc(0.6s * var(--time-scale)) ease-out;
+        }
 
         /* --- DESKTOP --- */
         @media (min-width: 800px) {
@@ -567,17 +544,7 @@
         @keyframes flashRead { 0% { background: rgba(34, 211, 238, 0.4); } 100% { background: transparent; } }
         @keyframes flashConsole { 0% { background: rgba(255, 255, 255, 0.15); } 100% { background: transparent; } }
 
-.panel-header {
-    background: #111;
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 12px;
-    color: #888;
-    font-size: 0.8em;
-    border-bottom: 1px solid #333;
-}
-
-.panel-header-action {
-    cursor: pointer;
-    color: #ef4444;
-}
+        @keyframes domPulse {
+            0% { transform: scale(0.98); }
+            100% { transform: scale(1); }
+        }

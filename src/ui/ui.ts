@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { TokenType, Lexer } from '../core/language';
 import { formatValue } from '../core/config';
-import { serializeVirtualDocument } from '../core/virtualDom';
+import { isVirtualDomValue } from '../core/virtualDom';
 import { refreshIcons } from './icons';
 
 const escapeHtml = (value) => String(value)
@@ -83,13 +83,34 @@ const renderTemplateStringValue = (rawTemplateTokenValue) => {
     return html;
 };
 
+const valueToVisualText = (value) => {
+    if (value === undefined) return 'undefined';
+    if (isVirtualDomValue(value)) return String(formatValue(value));
+    if (Array.isArray(value)) return JSON.stringify(value);
+    return JSON.stringify(formatValue(value));
+};
+
+const domTreeRefs = new WeakMap();
+let domTreeRefCounter = 1;
+
+const getDomTreeRef = (node) => {
+    if (!node || (typeof node !== 'object')) return null;
+    let ref = domTreeRefs.get(node);
+    if (!ref) {
+        ref = `N${String(domTreeRefCounter++).padStart(4, '0')}`;
+        domTreeRefs.set(node, ref);
+    }
+    return ref;
+};
+
 const buildDomTreeMarkup = (node, depth = 0) => {
     if (!node) return '';
+    const treeRef = getDomTreeRef(node);
     if (node.__domType === 'text') {
         const trimmed = String(node.textContent || '').trim();
         if (!trimmed) return '';
         const text = escapeHtml(trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed);
-        return `<div class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">#text</span> ${text}</div>`;
+        return `<div id="dom-tree-node-${treeRef}" class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr">"${text}"</span></div>`;
     }
     if (node.__domType !== 'element') return '';
     const tag = escapeHtml(String(node.tagName || 'node').toUpperCase());
@@ -101,7 +122,12 @@ const buildDomTreeMarkup = (node, depth = 0) => {
         .map((className) => `.${escapeHtml(className)}`)
         .join(' ');
     const classPart = classes ? `<span class="dom-tree-class">${classes}</span>` : '';
-    const self = `<div class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}</div>`;
+    const attrs = Object.keys(node.attributes || {})
+        .filter((name) => name !== 'id' && name !== 'class')
+        .map((name) => `<span class="dom-tree-attr">${escapeHtml(name)}="${escapeHtml(node.attributes[name])}"</span>`)
+        .join('');
+    const attrsPart = attrs ? `<span class="dom-tree-attrs">${attrs}</span>` : '';
+    const self = `<div id="dom-tree-node-${treeRef}" class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</div>`;
     const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1)).filter(Boolean).join('');
     return `${self}${children}`;
 };
@@ -114,7 +140,7 @@ export const ui = {
     heapRefs: new WeakMap(),
     heapRefCounter: 1,
     domDocument: null,
-    domViewMode: 'render',
+    domViewMode: 'tree',
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
     speedIndex: 3, 
@@ -314,44 +340,60 @@ export const ui = {
         document.getElementById('btn-next').disabled = true; 
         document.getElementById('btn-skip').disabled = true;
     },
-    switchDomView: (mode) => {
-        if (!['render', 'html', 'tree'].includes(mode)) return;
-        ui.domViewMode = mode;
-        ui.renderDomPanel();
-    },
+    switchDomView: () => {},
     updateDom: (domDocument) => {
         ui.domDocument = domDocument || null;
         ui.renderDomPanel();
     },
+    getDomTreeNodeElement: (node) => {
+        if (!node) return null;
+        const ref = getDomTreeRef(node);
+        if (!ref) return null;
+        return document.getElementById(`dom-tree-node-${ref}`);
+    },
+    highlightDomNode: async (node) => {
+        const target = ui.getDomTreeNodeElement(node);
+        if (!target) return;
+        target.classList.add('dom-highlight');
+        await ui.wait(450);
+        target.classList.remove('dom-highlight');
+    },
+    animateDomReadToToken: async (node, tokenId) => {
+        if (ui.skipMode || ui.isStopping || !node || !tokenId) return;
+        await ui.ensureDrawerOpen('dom');
+        ui.renderDomPanel();
+        const startEl = ui.getDomTreeNodeElement(node);
+        const tokenEl = document.getElementById(tokenId);
+        if (!startEl || !tokenEl) return;
+        startEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+        await ui.flyHelper(formatValue(node), startEl, tokenEl, false);
+        await ui.highlightDomNode(node);
+    },
+    animateTokenToDomNode: async (tokenId, node, value = null) => {
+        if (ui.skipMode || ui.isStopping || !tokenId || !node) return;
+        await ui.ensureDrawerOpen('dom');
+        ui.renderDomPanel();
+        const tokenEl = document.getElementById(tokenId);
+        const target = ui.getDomTreeNodeElement(node);
+        if (!tokenEl || !target) return;
+        target.scrollIntoView({ behavior: 'auto', block: 'center' });
+        await ui.flyHelper(value === null ? formatValue(node) : value, tokenEl, target, false);
+        await ui.highlightDomNode(node);
+    },
+    animateDomMutation: async (targetNode, sourceTokenId = null, payload = null) => {
+        if (ui.skipMode || ui.isStopping || !targetNode) return;
+        await ui.ensureDrawerOpen('dom');
+        ui.renderDomPanel();
+        if (sourceTokenId) {
+            await ui.animateTokenToDomNode(sourceTokenId, targetNode, payload);
+        } else {
+            await ui.highlightDomNode(targetNode);
+        }
+    },
     renderDomPanel: () => {
-        const root = document.getElementById('view-dom');
-        if (!root) return;
-        const modeButtons = root.querySelectorAll('.dom-mode-btn');
-        modeButtons.forEach((button) => {
-            if (button.getAttribute('data-mode') === ui.domViewMode) button.classList.add('active');
-            else button.classList.remove('active');
-        });
-        const renderView = document.getElementById('dom-view-render');
-        const htmlView = document.getElementById('dom-view-html');
         const treeView = document.getElementById('dom-view-tree');
-        [renderView, htmlView, treeView].forEach((view) => {
-            if (!view) return;
-            view.classList.remove('active');
-        });
-        const activeView = document.getElementById(`dom-view-${ui.domViewMode}`);
-        if (activeView) activeView.classList.add('active');
-
-        const renderCanvas = document.getElementById('dom-render-canvas');
-        if (renderCanvas) {
-            renderCanvas.innerHTML = ui.domDocument ? ui.domDocument.innerHTML : '';
-        }
-        const htmlCode = document.getElementById('dom-html-code');
-        if (htmlCode) {
-            htmlCode.textContent = ui.domDocument ? serializeVirtualDocument(ui.domDocument, true) : '<body></body>';
-        }
-        if (treeView) {
-            treeView.innerHTML = ui.domDocument ? buildDomTreeMarkup(ui.domDocument.body, 0) : '<div class="dom-tree-empty">Aucun document HTML charge.</div>';
-        }
+        if (!treeView) return;
+        treeView.innerHTML = ui.domDocument ? buildDomTreeMarkup(ui.domDocument.body, 0) : '<div class="dom-tree-empty">Aucun document HTML charge.</div>';
     },
     log: (msg, type='info') => { 
         if(ui.isStopping) return;
@@ -468,8 +510,8 @@ export const ui = {
                     ? 'empty'
                     : (Array.isArray(item)
                         ? (itemOwner ? `ref ${itemOwner}` : `Array(${item.length})`)
-                        : (item===undefined ? 'empty' : JSON.stringify(formatValue(item))));
-                row.innerHTML = `<span class="mem-addr"></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${displayValue}</span>`;
+                        : (item===undefined ? 'empty' : valueToVisualText(item)));
+                row.innerHTML = `<span class="mem-addr"></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${escapeHtml(displayValue)}</span>`;
                 if(variableName===flashVarName && isTopLevel && flashIndex===idx) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 groupDiv.appendChild(row);
                 if (Array.isArray(item) && !isCircularRef) {
@@ -504,11 +546,11 @@ export const ui = {
                 } else if (v.value && v.value.type && v.value.type.includes('func')) {
                     valStr = `f(${v.value.params})`;
                 } else {
-                    valStr = (v.value === undefined ? 'undefined' : JSON.stringify(formatValue(v.value)));
+                    valStr = valueToVisualText(v.value);
                 }
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
-                row.innerHTML = `<span class="mem-addr">${v.addr}</span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${valStr}</span>`;
+                row.innerHTML = `<span class="mem-addr">${v.addr}</span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${escapeHtml(valStr)}</span>`;
                 row.className = 'memory-cell'; 
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }
@@ -532,7 +574,7 @@ export const ui = {
             ui.modifiedTokens.set(tokenId, { original: el.innerText, originalHtml: el.innerHTML, transient: isTransient });
         }
     },
-    replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = Array.isArray(newValue) ? JSON.stringify(newValue) : JSON.stringify(formatValue(newValue)); el.classList.add('val-replacement'); } },
+    replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = valueToVisualText(newValue); el.classList.add('val-replacement'); } },
     setRawTokenText: (tokenId, text, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = text; el.classList.add('val-replacement'); } },
     setTokenMarkup: (tokenId, html, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerHTML = html; el.classList.add('val-replacement'); } },
     resetTokenText: (tokenId) => { const el = document.getElementById(tokenId); if (el && ui.modifiedTokens.has(tokenId)) { const data = ui.modifiedTokens.get(tokenId); if (Object.prototype.hasOwnProperty.call(data, 'originalHtml')) el.innerHTML = data.originalHtml; else el.innerText = data.original; el.classList.remove('val-replacement'); ui.modifiedTokens.delete(tokenId); } },
@@ -560,7 +602,7 @@ export const ui = {
         const end = endEl.getBoundingClientRect();
         
         if (start.top < 0 || end.top < 0) return; 
-        const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = JSON.stringify(formatValue(value)); document.body.appendChild(flyer);
+        const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = valueToVisualText(value); document.body.appendChild(flyer);
         
         flyer.style.zIndex = zIndex; 
 
@@ -585,8 +627,8 @@ export const ui = {
     animateReadHeader: async (varName, value, targetTokenId) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = `mem-header-${varName}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); await ui.flyHelper(value, memEl, tokenEl); },
     animateReturnHeader: async (varName, value, targetTokenId) => { await ui.animateReadHeader(varName, value, targetTokenId); },
     animateSpliceRead: async (varName, values, targetTokenId, startIndex) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = `mem-val-${varName}-${startIndex}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); if (!memEl || !tokenEl) return; const valStr = `[${values.map(v => JSON.stringify(formatValue(v))).join(', ')}]`; await ui.flyHelper(valStr, memEl, tokenEl); },
-    animateOperationCollapse: async (domIds, result) => { if (ui.skipMode || ui.isStopping) return; const elements = domIds.map(id => document.getElementById(id)).filter(e => e); if (elements.length === 0) return; elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.backgroundColor = 'rgba(167, 139, 250, 0.4)'; el.style.boxShadow = '0 0 2px rgba(167, 139, 250, 0.6)'; }); await ui.wait(ui.baseDelay); elements.forEach(el => { el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; el.style.opacity = '0.5'; }); await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = JSON.stringify(formatValue(result)); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
-    animateReturnToCall: async (callDomIds, result, sourceId = null) => { if (ui.skipMode) { const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); if(elements.length > 0) { const first = elements[0]; if(!ui.modifiedTokens.has(first.id)) ui.modifiedTokens.set(first.id, { original: first.innerText, transient: true }); first.innerText = JSON.stringify(formatValue(result)); first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) { const el = elements[i]; if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.display = 'none'; } } return; } const startEl = document.getElementById(callDomIds[0]); if(!startEl) return; if (sourceId) { const sourceEl = document.getElementById(sourceId); if (sourceEl) { await ui.flyHelper(result, sourceEl, startEl, false); } } const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.opacity = '0.5'; }); if (!sourceId) await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = JSON.stringify(formatValue(result)); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
+    animateOperationCollapse: async (domIds, result) => { if (ui.skipMode || ui.isStopping) return; const elements = domIds.map(id => document.getElementById(id)).filter(e => e); if (elements.length === 0) return; elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.backgroundColor = 'rgba(167, 139, 250, 0.4)'; el.style.boxShadow = '0 0 2px rgba(167, 139, 250, 0.6)'; }); await ui.wait(ui.baseDelay); elements.forEach(el => { el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; el.style.opacity = '0.5'; }); await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
+    animateReturnToCall: async (callDomIds, result, sourceId = null) => { if (ui.skipMode) { const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); if(elements.length > 0) { const first = elements[0]; if(!ui.modifiedTokens.has(first.id)) ui.modifiedTokens.set(first.id, { original: first.innerText, transient: true }); first.innerText = valueToVisualText(result); first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) { const el = elements[i]; if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.display = 'none'; } } return; } const startEl = document.getElementById(callDomIds[0]); if(!startEl) return; if (sourceId) { const sourceEl = document.getElementById(sourceId); if (sourceEl) { await ui.flyHelper(result, sourceEl, startEl, false); } } const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.opacity = '0.5'; }); if (!sourceId) await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
     animateParamPass: async (value, sourceId, targetId) => { if (ui.skipMode || ui.isStopping) return; const sourceEl = document.getElementById(sourceId); const targetEl = document.getElementById(targetId); await ui.flyHelper(value, sourceEl, targetEl); }
 };
 

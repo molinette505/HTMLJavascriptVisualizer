@@ -8,6 +8,7 @@ import stringsCode from '../../saves/06-strings.js?raw';
 import bouclesCode from '../../saves/07-boucles.js?raw';
 import functionsCode from '../../saves/08-functions-et-arrow-functions.js?raw';
 import bouclesParallelesCode from '../../saves/09-boucle-tableaux-paralleles.js?raw';
+import domManipulationListeCode from '../../saves/10-dom-manipulation-liste.js?raw';
 
 export const SCENARIOS = [
     { id: 'creation-variables', title: 'Creation de variables', code: creationVariablesCode.trim() },
@@ -19,4 +20,10 @@ export const SCENARIOS = [
     { id: 'boucles', title: 'Boucles', code: bouclesCode.trim() },
     { id: 'boucles-tableaux-paralleles', title: 'Boucle + tableaux paralleles', code: bouclesParallelesCode.trim() },
     { id: 'functions-arrow', title: 'Function et Arrow Function', code: functionsCode.trim() },
+    {
+        id: 'dom-manipulation-liste',
+        title: 'DOM - Manipulation de liste',
+        code: domManipulationListeCode.trim(),
+        domDocumentId: 'dom-liste-courses'
+    },
 ];

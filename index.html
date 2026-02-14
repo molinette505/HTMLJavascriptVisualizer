@@ -98,32 +98,13 @@
                 <div class="drawer-tab" onclick="ui.switchTab('dom')" id="tab-dom">DOM</div>
             </div>
             <div id="view-memory" class="drawer-content active">
-                <div class="panel-header">
-                    <span>STACK & HEAP</span>
-                </div>
                 <div id="memory-container"></div>
             </div>
             <div id="view-console" class="drawer-content">
-                <div class="panel-header">
-                    <span>Sortie</span>
-                    <span class="panel-header-action" onclick="consoleUI.clear()">🗑️ Effacer</span>
-                </div>
                 <div class="console-box" id="console-output"></div>
             </div>
             <div id="view-dom" class="drawer-content">
-                <div class="panel-header">
-                    <span>DOM</span>
-                </div>
-                <div class="dom-view-tabs">
-                    <button class="dom-mode-btn active" data-mode="render" onclick="ui.switchDomView('render')">Render</button>
-                    <button class="dom-mode-btn" data-mode="html" onclick="ui.switchDomView('html')">HTML</button>
-                    <button class="dom-mode-btn" data-mode="tree" onclick="ui.switchDomView('tree')">Tree</button>
-                </div>
-                <div id="dom-view-render" class="dom-view active">
-                    <div id="dom-render-canvas"></div>
-                </div>
-                <pre id="dom-view-html" class="dom-view"><code id="dom-html-code"></code></pre>
-                <div id="dom-view-tree" class="dom-view"></div>
+                <div id="dom-view-tree" class="dom-view active"></div>
             </div>
         </div>
     </div>

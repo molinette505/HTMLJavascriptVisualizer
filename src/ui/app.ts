@@ -124,6 +124,17 @@ export const app = {
         editor.adjustHeight();
         editor.refresh();
         consoleUI.clear();
+        if (scenario.domDocumentId) {
+            const domIndex = app.domDocuments.findIndex((doc) => doc.id === scenario.domDocumentId);
+            if (domIndex !== -1) {
+                const domItem = app.domDocuments[domIndex];
+                app.currentDomHtml = domItem.html;
+                ui.updateDom(createVirtualDocument(app.currentDomHtml));
+                const domSelect = document.getElementById('load-dom-select');
+                if (domSelect) domSelect.value = String(domIndex);
+                ui.log(`Document HTML associe charge: ${domItem.title}`, 'info');
+            }
+        }
         ui.log(`Sauvegarde chargee: ${scenario.title}`, 'info');
         const popup = document.getElementById('load-popup');
         if (popup) popup.classList.remove('visible');

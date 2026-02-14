@@ -179,7 +179,12 @@ export class Interpreter {
                     }
                 } else if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
                     obj[prop] = val;
-                    if (isVirtualDomValue(obj)) this.refreshDomView();
+                    if (isVirtualDomValue(obj)) {
+                        this.refreshDomView();
+                        if (typeof this.ui.animateDomMutation === 'function') {
+                            await this.ui.animateDomMutation(obj, node.value.domIds[0], val);
+                        }
+                    }
                 }
             }
         }
@@ -436,7 +441,67 @@ export class Interpreter {
         if (node instanceof NewExpr) { if (node.callee instanceof Identifier && node.callee.name === 'Array') { const args = []; for(const arg of node.args) args.push(await this.evaluate(arg)); if(args.length === 1 && typeof args[0] === 'number') { return new Array(args[0]).fill(undefined); } return new Array(...args); } }
         if (node instanceof ArgumentsNode) { let result; for(const arg of node.args) { result = await this.evaluate(arg); } return result; }
         if (node instanceof Identifier) { const variable = this.currentScope.get(node.name); if (variable.value && variable.value.type === 'arrow_func') return variable.value; if (variable.value && variable.value.type === 'function_expr') return variable.value; await this.ui.animateRead(node.name, variable.value, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], variable.value, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return variable.value; }
-        if (node instanceof MemberExpr) { let obj; if (node.object instanceof Identifier) { const varName = node.object.name; const scopedVar = this.currentScope.get(varName); obj = scopedVar.value; } else { obj = await this.evaluate(node.object); } const prop = node.computed ? await this.evaluate(node.property) : node.property.value; if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) { await this.ui.animateReadHeader(node.object.name, obj.length, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], obj.length, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return obj.length; } if (Array.isArray(obj) && node.object instanceof Identifier) { const val = obj[prop]; await this.ui.animateRead(node.object.name, val, node.domIds[0], prop); this.ui.replaceTokenText(node.domIds[0], val, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return val; } if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) { const len = obj.length; await this.ui.animateRead(node.object.name, len, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], len, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return len; } if (typeof obj === 'string' && node.object instanceof Identifier) { const val = obj[prop]; if (typeof val === 'function') return val.bind(obj); await this.ui.animateRead(node.object.name, val, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], val, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return val; } return obj[prop]; }
+        if (node instanceof MemberExpr) {
+            let obj;
+            if (node.object instanceof Identifier) {
+                const varName = node.object.name;
+                const scopedVar = this.currentScope.get(varName);
+                obj = scopedVar.value;
+            } else {
+                obj = await this.evaluate(node.object);
+            }
+            const prop = node.computed ? await this.evaluate(node.property) : node.property.value;
+            if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) {
+                await this.ui.animateReadHeader(node.object.name, obj.length, node.domIds[0]);
+                this.ui.replaceTokenText(node.domIds[0], obj.length, true);
+                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.wait(800);
+                return obj.length;
+            }
+            if (Array.isArray(obj) && node.object instanceof Identifier) {
+                const val = obj[prop];
+                await this.ui.animateRead(node.object.name, val, node.domIds[0], prop);
+                this.ui.replaceTokenText(node.domIds[0], val, true);
+                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.wait(800);
+                return val;
+            }
+            if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) {
+                const len = obj.length;
+                await this.ui.animateRead(node.object.name, len, node.domIds[0]);
+                this.ui.replaceTokenText(node.domIds[0], len, true);
+                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.wait(800);
+                return len;
+            }
+            if (typeof obj === 'string' && node.object instanceof Identifier) {
+                const val = obj[prop];
+                if (typeof val === 'function') return val.bind(obj);
+                await this.ui.animateRead(node.object.name, val, node.domIds[0]);
+                this.ui.replaceTokenText(node.domIds[0], val, true);
+                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.wait(800);
+                return val;
+            }
+            if (isVirtualDomValue(obj)) {
+                const domValue = obj[prop];
+                if (typeof domValue === 'function') return domValue.bind(obj);
+                if (node.domIds && node.domIds.length > 0) {
+                    if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, node.domIds[0]);
+                    this.ui.replaceTokenText(node.domIds[0], domValue, true);
+                    for (let i = 1; i < node.domIds.length; i++) {
+                        const el = document.getElementById(node.domIds[i]);
+                        if (el) {
+                            if (!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], { original: el.innerText, transient: true });
+                            el.style.display = 'none';
+                        }
+                    }
+                    await this.ui.wait(800);
+                }
+                return domValue;
+            }
+            return obj[prop];
+        }
         if (node instanceof UpdateExpr) { const name = node.arg.name; const currentVal = this.currentScope.get(name).value; const isInc = node.op === '++'; const newVal = isInc ? currentVal + 1 : currentVal - 1; await this.ui.animateRead(name, currentVal, node.arg.domIds[0]); if (node.prefix) { await this.ui.animateOperationCollapse(node.domIds, newVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0]); await this.ui.updateMemory(this.scopeStack, name, 'write'); return newVal; } else { await this.ui.animateOperationCollapse(node.domIds, currentVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0]); await this.ui.updateMemory(this.scopeStack, name, 'write'); return currentVal; } }
         if (node instanceof TernaryExpr) { const condition = await this.evaluate(node.test); const result = condition ? await this.evaluate(node.consequent) : await this.evaluate(node.alternate); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof BinaryExpr) { const left = await this.evaluate(node.left); if (node.op === '&&' && !left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, false); await this.ui.wait(800); return false; } if (node.op === '||' && left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, true); await this.ui.wait(800); return true; } const right = await this.evaluate(node.right); let result; switch(node.op) { case '+': result = left + right; break; case '-': result = left - right; break; case '*': result = left * right; break; case '/': result = left / right; break; case '%': result = left % right; break; case '>': result = left > right; break; case '<': result = left < right; break; case '>=': result = left >= right; break; case '<=': result = left <= right; break; case '==': result = left == right; break; case '!=': result = left != right; break; case '===': result = left === right; break; case '!==': result = left !== right; break; case '&&': result = left && right; break; case '||': result = left || right; break; } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
@@ -468,7 +533,39 @@ export class Interpreter {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
                     if (typeof obj[method] === 'function') {
                         const result = obj[method](...argValues);
-                        if (isVirtualDomValue(obj) && ['appendChild', 'removeChild'].includes(method)) this.refreshDomView();
+                        if (isVirtualDomValue(obj)) {
+                            if (method === 'appendChild') {
+                                this.refreshDomView();
+                                const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? node.args[0].domIds[0] : null;
+                                if (typeof this.ui.animateDomMutation === 'function') {
+                                    await this.ui.animateDomMutation(result || obj, sourceTokenId, argValues[0]);
+                                }
+                            } else if (method === 'removeChild') {
+                                this.refreshDomView();
+                                const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? node.args[0].domIds[0] : null;
+                                if (typeof this.ui.animateDomMutation === 'function') {
+                                    await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
+                                }
+                            } else if (['getElementById', 'querySelector'].includes(method) && result) {
+                                if (typeof this.ui.animateDomReadToToken === 'function') {
+                                    await this.ui.animateDomReadToToken(result, node.domIds[0]);
+                                }
+                            } else if (method === 'createElement') {
+                                await this.ui.animateOperationCollapse(node.domIds, result);
+                                await this.ui.wait(800);
+                                return result;
+                            }
+                            this.ui.replaceTokenText(node.domIds[0], result, true);
+                            for (let i = 1; i < node.domIds.length; i++) {
+                                const el = document.getElementById(node.domIds[i]);
+                                if (el) {
+                                    if (!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], { original: el.innerText, transient: true });
+                                    el.style.display = 'none';
+                                }
+                            }
+                            await this.ui.wait(800);
+                            return result;
+                        }
                         await this.ui.animateOperationCollapse(node.domIds, result);
                         await this.ui.wait(800);
                         return result;
