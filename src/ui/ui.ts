@@ -421,6 +421,39 @@ export const ui = {
         if (!attrName) return [];
         return Array.from(nodeElement.querySelectorAll(`[data-dom-attr="${attrName}"]`));
     },
+    getDomTreeSubtreeElements: (node) => {
+        if (!node) return [];
+        const elements = [];
+        const walk = (current) => {
+            const currentEl = ui.getDomTreeNodeElement(current);
+            if (currentEl) elements.push(currentEl);
+            if (!current || !current.children || current.children.length === 0) return;
+            current.children.forEach((child) => walk(child));
+        };
+        walk(node);
+        return elements;
+    },
+    createDomGroupHighlight: (elements) => {
+        const treeContainer = document.getElementById('dom-view-tree');
+        if (!treeContainer || !elements || elements.length === 0) return { box: null, clear: () => {} };
+        const rects = elements.map((element) => element.getBoundingClientRect());
+        const containerRect = treeContainer.getBoundingClientRect();
+        const minTop = Math.min(...rects.map((rect) => rect.top));
+        const minLeft = Math.min(...rects.map((rect) => rect.left));
+        const maxRight = Math.max(...rects.map((rect) => rect.right));
+        const maxBottom = Math.max(...rects.map((rect) => rect.bottom));
+        const box = document.createElement('div');
+        box.className = 'dom-group-highlight-box';
+        box.style.left = `${Math.max(0, minLeft - containerRect.left - 8)}px`;
+        box.style.top = `${Math.max(0, minTop - containerRect.top - 6)}px`;
+        box.style.width = `${Math.max(24, maxRight - minLeft + 16)}px`;
+        box.style.height = `${Math.max(20, maxBottom - minTop + 12)}px`;
+        treeContainer.appendChild(box);
+        return {
+            box,
+            clear: () => { if (box.parentElement) box.remove(); }
+        };
+    },
     setDomAttributeHighlight: (elements, enabled) => {
         (elements || []).forEach((element) => {
             if (!element) return;
@@ -560,8 +593,10 @@ export const ui = {
         }
         const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
         const replacedNodes = (property === 'innerText' || property === 'innerHTML') ? (targetNode.children || []) : [];
-        const replacedEls = replacedNodes.map((child) => ui.getDomTreeNodeElement(child)).filter(Boolean);
+        const replacedEls = replacedNodes.flatMap((child) => ui.getDomTreeSubtreeElements(child));
         const attrEls = ui.getDomAttributeElements(targetEl, property);
+        const useGroupedReplacement = property === 'innerText' || property === 'innerHTML';
+        const groupHighlight = (useGroupedReplacement && replacedEls.length > 0) ? ui.createDomGroupHighlight(replacedEls) : { box: null, clear: () => {} };
         const insertionTarget = ((property === 'innerText' || property === 'innerHTML') && replacedEls.length === 0)
             ? (() => {
                 const placeholder = document.createElement('div');
@@ -571,13 +606,13 @@ export const ui = {
                 return placeholder;
             })()
             : null;
-        const flyTarget = replacedEls[0] || insertionTarget || targetEl;
+        const flyTarget = groupHighlight.box || insertionTarget || targetEl;
         const flowEls = [sourceEl, targetEl].filter(Boolean);
         targetEl.scrollIntoView({ behavior: 'auto', block: 'center' });
         targetEl.classList.add('dom-parent-highlight');
-        replacedEls.forEach((nodeEl) => nodeEl.classList.add('dom-replaced-highlight'));
+        if (!groupHighlight.box) replacedEls.forEach((nodeEl) => nodeEl.classList.add('dom-replaced-highlight'));
         ui.setDomAttributeHighlight(attrEls, true);
-        if (replacedEls.length > 0) flyTarget.classList.add('dom-insert-space');
+        if (replacedEls.length > 0 && !groupHighlight.box) flyTarget.classList.add('dom-insert-space');
         if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
         await ui.wait(220);
         if (sourceEl) await ui.flyHelper(payload, sourceEl, flyTarget, false);
@@ -590,8 +625,9 @@ export const ui = {
         ui.setDomAttributeHighlight(refreshedAttrEls, true);
         await ui.wait(240);
         targetEl.classList.remove('dom-parent-highlight');
-        flyTarget.classList.remove('dom-insert-space');
+        if (!groupHighlight.box) flyTarget.classList.remove('dom-insert-space');
         replacedEls.forEach((nodeEl) => nodeEl.classList.remove('dom-replaced-highlight'));
+        groupHighlight.clear();
         if (refreshedTarget) refreshedTarget.classList.remove('dom-parent-highlight');
         ui.setDomAttributeHighlight(attrEls, false);
         ui.setDomAttributeHighlight(refreshedAttrEls, false);
@@ -659,16 +695,19 @@ export const ui = {
             return;
         }
         const removedEl = removedNode ? ui.getDomTreeNodeElement(removedNode) : null;
+        const removedSubtreeEls = removedNode ? ui.getDomTreeSubtreeElements(removedNode) : [];
+        const removedGroup = removedSubtreeEls.length > 0 ? ui.createDomGroupHighlight(removedSubtreeEls) : { box: null, clear: () => {} };
+        const removeTarget = removedGroup.box || removedEl || parentEl;
         const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
-        const flowEls = [sourceEl, removedEl || parentEl].filter(Boolean);
+        const flowEls = [sourceEl, removeTarget].filter(Boolean);
         parentEl.scrollIntoView({ behavior: 'auto', block: 'center' });
         parentEl.classList.add('dom-parent-highlight');
-        if (removedEl) removedEl.classList.add('dom-replaced-highlight');
+        if (!removedGroup.box && removedEl) removedEl.classList.add('dom-replaced-highlight');
         if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
         await ui.wait(220);
-        if (sourceEl && removedEl && removedNode) await ui.flyDomNodeFromToken(removedNode, sourceEl, removedEl, false);
-        if (removedEl) {
-            removedEl.classList.add('dom-remove-leave');
+        if (sourceEl && removedNode) await ui.flyDomNodeFromToken(removedNode, sourceEl, removeTarget, false);
+        if (removeTarget) {
+            removeTarget.classList.add('dom-remove-leave');
             await ui.wait(340);
         }
         if (typeof applyMutation === 'function') await applyMutation();
@@ -678,10 +717,9 @@ export const ui = {
         await ui.wait(220);
         if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
         parentEl.classList.remove('dom-parent-highlight');
-        if (removedEl) {
-            removedEl.classList.remove('dom-replaced-highlight');
-            removedEl.classList.remove('dom-remove-leave');
-        }
+        if (removedEl) removedEl.classList.remove('dom-replaced-highlight');
+        if (removeTarget) removeTarget.classList.remove('dom-remove-leave');
+        removedGroup.clear();
         if (refreshedParent) refreshedParent.classList.remove('dom-parent-highlight');
         await ui.wait(120);
     },

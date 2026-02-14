@@ -15,3 +15,4 @@ console.log("Resultats (tableaux paralleles):");
 for (let i = 0; i < recap.length; i++) {
   console.log(recap[i]);
 }
+

@@ -218,6 +218,18 @@ const findBySelector = (root, selector) => {
     return found;
 };
 
+const findParentOfNode = (root, node) => {
+    if (!(root instanceof VirtualElementNode) || !node) return null;
+    for (const child of root.children || []) {
+        if (child === node) return root;
+        if (child instanceof VirtualElementNode) {
+            const match = findParentOfNode(child, node);
+            if (match) return match;
+        }
+    }
+    return null;
+};
+
 export class VirtualTextNode {
     constructor(text = '') {
         this.__domType = 'text';
@@ -363,10 +375,21 @@ export class VirtualElementNode {
 
     removeChild(node) {
         const index = this.children.indexOf(node);
-        if (index === -1) throw new Error('removeChild: noeud introuvable');
-        const removed = this.children[index];
-        this.children.splice(index, 1);
-        return removed;
+        if (index !== -1) {
+            const removed = this.children[index];
+            this.children.splice(index, 1);
+            return removed;
+        }
+        const nestedParent = findParentOfNode(this, node);
+        if (nestedParent) {
+            const nestedIndex = nestedParent.children.indexOf(node);
+            if (nestedIndex !== -1) {
+                const removed = nestedParent.children[nestedIndex];
+                nestedParent.children.splice(nestedIndex, 1);
+                return removed;
+            }
+        }
+        throw new Error('removeChild: noeud introuvable');
     }
 
     getElementById(id) {

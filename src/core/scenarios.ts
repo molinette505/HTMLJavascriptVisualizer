@@ -9,6 +9,7 @@ import bouclesCode from '../../saves/07-boucles.js?raw';
 import functionsCode from '../../saves/08-functions-et-arrow-functions.js?raw';
 import bouclesParallelesCode from '../../saves/09-boucle-tableaux-paralleles.js?raw';
 import domManipulationListeCode from '../../saves/10-dom-manipulation-liste.js?raw';
+import domQuerySelectorManipulationsCode from '../../saves/11-dom-queryselector-manipulations.js?raw';
 
 export const SCENARIOS = [
     { id: 'creation-variables', title: 'Creation de variables', code: creationVariablesCode.trim() },
@@ -25,5 +26,11 @@ export const SCENARIOS = [
         title: 'DOM - Manipulation de liste',
         code: domManipulationListeCode.trim(),
         domDocumentId: 'dom-liste-courses'
+    },
+    {
+        id: 'dom-queryselector-manipulations',
+        title: 'DOM - QuerySelector et manipulations',
+        code: domQuerySelectorManipulationsCode.trim(),
+        domDocumentId: 'dom-queryselector-manipulations'
     },
 ];
