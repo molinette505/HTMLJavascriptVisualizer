@@ -296,6 +296,39 @@ export class VirtualElementNode {
         else this.setAttribute('class', value);
     }
 
+    get classList() {
+        const owner = this;
+        return {
+            add: (...tokens) => {
+                const current = classListFrom(owner.className);
+                tokens.forEach((token) => {
+                    const normalized = String(token || '').trim();
+                    if (!normalized) return;
+                    if (!current.includes(normalized)) current.push(normalized);
+                });
+                owner.className = current.join(' ');
+            },
+            remove: (...tokens) => {
+                const toRemove = new Set(tokens.map((token) => String(token || '').trim()).filter(Boolean));
+                const next = classListFrom(owner.className).filter((entry) => !toRemove.has(entry));
+                owner.className = next.join(' ');
+            },
+            contains: (token) => classListFrom(owner.className).includes(String(token || '').trim()),
+            toggle: (token) => {
+                const normalized = String(token || '').trim();
+                if (!normalized) return false;
+                const current = classListFrom(owner.className);
+                if (current.includes(normalized)) {
+                    owner.className = current.filter((entry) => entry !== normalized).join(' ');
+                    return false;
+                }
+                current.push(normalized);
+                owner.className = current.join(' ');
+                return true;
+            }
+        };
+    }
+
     get value() {
         if (Object.prototype.hasOwnProperty.call(this.attributes, 'value')) return this.attributes.value;
         return this._value || '';

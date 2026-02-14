@@ -110,26 +110,88 @@ const buildDomTreeMarkup = (node, depth = 0) => {
         const trimmed = String(node.textContent || '').trim();
         if (!trimmed) return '';
         const text = escapeHtml(trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed);
-        return `<div id="dom-tree-node-${treeRef}" class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr">"${text}"</span></div>`;
+        return `<div id="dom-tree-node-${treeRef}" class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr" data-dom-attr="text">"${text}"</span></div>`;
     }
     if (node.__domType !== 'element') return '';
-    const tag = escapeHtml(String(node.tagName || 'node').toUpperCase());
-    const idPart = node.id ? `<span class="dom-tree-id">#${escapeHtml(node.id)}</span>` : '';
+    const tag = escapeHtml(String(node.tagName || 'node').toLowerCase());
+    const idPart = node.id ? `<span class="dom-tree-id" data-dom-attr="id">#${escapeHtml(node.id)}</span>` : '';
     const classes = String(node.className || '')
         .split(/\s+/)
         .map((entry) => entry.trim())
         .filter(Boolean)
         .map((className) => `.${escapeHtml(className)}`)
         .join(' ');
-    const classPart = classes ? `<span class="dom-tree-class">${classes}</span>` : '';
+    const classPart = classes ? `<span class="dom-tree-class" data-dom-attr="class">${classes}</span>` : '';
     const attrs = Object.keys(node.attributes || {})
         .filter((name) => name !== 'id' && name !== 'class')
-        .map((name) => `<span class="dom-tree-attr">${escapeHtml(name)}="${escapeHtml(node.attributes[name])}"</span>`)
+        .map((name) => `<span class="dom-tree-attr" data-dom-attr="${escapeHtml(name)}">[${escapeHtml(name)}="${escapeHtml(node.attributes[name])}"]</span>`)
         .join('');
     const attrsPart = attrs ? `<span class="dom-tree-attrs">${attrs}</span>` : '';
     const self = `<div id="dom-tree-node-${treeRef}" class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</div>`;
     const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1)).filter(Boolean).join('');
     return `${self}${children}`;
+};
+
+const mapDomPropertyToAttr = (property) => {
+    const normalized = String(property || '').trim();
+    if (!normalized) return '';
+    if (normalized === 'className') return 'class';
+    if (normalized === 'textContent' || normalized === 'innerText') return 'text';
+    return normalized;
+};
+
+const createDomFlyBadgeElement = (node) => {
+    const badge = document.createElement('div');
+    badge.className = 'dom-tree-node dom-fly-badge';
+    if (!node) return badge;
+    if (node.__domType === 'text') {
+        badge.classList.add('dom-tree-text');
+        const textLabel = document.createElement('span');
+        textLabel.className = 'dom-tree-text-label';
+        textLabel.innerText = 'TEXTE';
+        const textValue = document.createElement('span');
+        textValue.className = 'dom-tree-attr';
+        textValue.innerText = `"${String(node.textContent || '').trim()}"`;
+        badge.appendChild(textLabel);
+        badge.appendChild(textValue);
+        return badge;
+    }
+    const tag = document.createElement('span');
+    tag.className = 'dom-tree-tag';
+    tag.innerText = String(node.tagName || 'node').toLowerCase();
+    badge.appendChild(tag);
+    if (node.id) {
+        const idPart = document.createElement('span');
+        idPart.className = 'dom-tree-id';
+        idPart.innerText = `#${node.id}`;
+        badge.appendChild(idPart);
+    }
+    const classes = String(node.className || '')
+        .split(/\s+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => `.${entry}`)
+        .join(' ');
+    if (classes) {
+        const classPart = document.createElement('span');
+        classPart.className = 'dom-tree-class';
+        classPart.innerText = classes;
+        badge.appendChild(classPart);
+    }
+    const attrs = Object.keys(node.attributes || {})
+        .filter((name) => name !== 'id' && name !== 'class');
+    if (attrs.length > 0) {
+        const attrsWrap = document.createElement('span');
+        attrsWrap.className = 'dom-tree-attrs';
+        attrs.forEach((name) => {
+            const chip = document.createElement('span');
+            chip.className = 'dom-tree-attr';
+            chip.innerText = `[${name}="${node.attributes[name]}"]`;
+            attrsWrap.appendChild(chip);
+        });
+        badge.appendChild(attrsWrap);
+    }
+    return badge;
 };
 
 export const ui = {
@@ -269,6 +331,7 @@ export const ui = {
 
     stopAnimations: () => {
         document.querySelectorAll('.flying-element').forEach(el => el.remove());
+        document.querySelectorAll('.flying-dom-node').forEach(el => el.remove());
     },
 
     renderCode: (tokens) => {
@@ -351,6 +414,20 @@ export const ui = {
         if (!ref) return null;
         return document.getElementById(`dom-tree-node-${ref}`);
     },
+    getElementsByIds: (ids) => (ids || []).map((id) => document.getElementById(id)).filter(Boolean),
+    getDomAttributeElements: (nodeElement, property = '') => {
+        if (!nodeElement) return [];
+        const attrName = mapDomPropertyToAttr(property);
+        if (!attrName) return [];
+        return Array.from(nodeElement.querySelectorAll(`[data-dom-attr="${attrName}"]`));
+    },
+    setDomAttributeHighlight: (elements, enabled) => {
+        (elements || []).forEach((element) => {
+            if (!element) return;
+            if (enabled) element.classList.add('dom-attr-highlight');
+            else element.classList.remove('dom-attr-highlight');
+        });
+    },
     highlightDomNode: async (node) => {
         const target = ui.getDomTreeNodeElement(node);
         if (!target) return;
@@ -358,7 +435,32 @@ export const ui = {
         await ui.wait(450);
         target.classList.remove('dom-highlight');
     },
-    animateDomReadToToken: async (node, tokenId) => {
+    setDomNodeClass: (nodes, className, enabled) => {
+        (nodes || []).forEach((node) => {
+            if (!node) return;
+            const element = (typeof node === 'string') ? document.getElementById(node) : ui.getDomTreeNodeElement(node);
+            if (!element) return;
+            if (enabled) element.classList.add(className);
+            else element.classList.remove(className);
+        });
+    },
+    setFlowHighlight: (elements, enabled) => {
+        (elements || []).forEach((element) => {
+            if (!element) return;
+            if (enabled) element.classList.add('flow-link-highlight');
+            else element.classList.remove('flow-link-highlight');
+        });
+    },
+    animateWithFlowHighlight: async (sourceEl, destinationEl, flyCallback) => {
+        if (!sourceEl || !destinationEl || typeof flyCallback !== 'function') return;
+        ui.setFlowHighlight([sourceEl, destinationEl], true);
+        await ui.wait(180);
+        await flyCallback();
+        await ui.wait(160);
+        ui.setFlowHighlight([sourceEl, destinationEl], false);
+        await ui.wait(120);
+    },
+    animateDomReadToToken: async (node, tokenId, replacementValue = undefined, tokenGroupIds = [], property = '') => {
         if (ui.skipMode || ui.isStopping || !node || !tokenId) return;
         await ui.ensureDrawerOpen('dom');
         await ui.wait(220);
@@ -366,10 +468,23 @@ export const ui = {
         const startEl = ui.getDomTreeNodeElement(node);
         const tokenEl = document.getElementById(tokenId);
         if (!startEl || !tokenEl) return;
+        const codeEls = ui.getElementsByIds((tokenGroupIds && tokenGroupIds.length > 0) ? tokenGroupIds : [tokenId]);
+        const attrEls = ui.getDomAttributeElements(startEl, property);
         startEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-        await ui.highlightDomNode(node);
+        ui.setFlowHighlight([startEl, ...codeEls], true);
+        ui.setDomAttributeHighlight(attrEls, true);
+        await ui.wait(180);
+        const shouldFlyAttributeValue = attrEls.length > 0 && !['innerText', 'innerHTML', 'textContent'].includes(String(property || ''));
+        if (shouldFlyAttributeValue) {
+            await ui.flyHelper(replacementValue, attrEls[0], tokenEl, false);
+        } else {
+            await ui.flyDomNodeHelper(startEl, tokenEl, false);
+        }
+        if (replacementValue !== undefined) ui.replaceTokenText(tokenId, replacementValue, true);
+        await ui.wait(160);
+        ui.setFlowHighlight([startEl, ...codeEls], false);
+        ui.setDomAttributeHighlight(attrEls, false);
         await ui.wait(120);
-        await ui.flyDomNodeHelper(startEl, tokenEl, false);
     },
     animateTokenToDomNode: async (tokenId, node, value = null) => {
         if (ui.skipMode || ui.isStopping || !tokenId || !node) return;
@@ -377,9 +492,9 @@ export const ui = {
         const target = ui.getDomTreeNodeElement(node);
         if (!tokenEl || !target) return;
         target.scrollIntoView({ behavior: 'auto', block: 'center' });
-        await ui.highlightDomNode(node);
-        await ui.wait(120);
-        await ui.flyHelper(value === null ? formatValue(node) : value, tokenEl, target, false);
+        await ui.animateWithFlowHighlight(tokenEl, target, async () => {
+            await ui.flyHelper(value === null ? formatValue(node) : value, tokenEl, target, false);
+        });
     },
     animateDomMutation: async (targetNode, sourceTokenId = null, payload = null) => {
         if (ui.skipMode || ui.isStopping || !targetNode) return;
@@ -391,6 +506,184 @@ export const ui = {
         } else {
             await ui.highlightDomNode(targetNode);
         }
+    },
+    flyDomNodeFromToken: async (node, startEl, endEl, delayStart = true) => {
+        if (!node || !startEl || !endEl || ui.isStopping) return;
+        endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await ui.wait(600);
+        if (ui.isStopping) return;
+        const start = startEl.getBoundingClientRect();
+        const end = endEl.getBoundingClientRect();
+        if (start.top < 0 || end.top < 0) return;
+        const flyer = createDomFlyBadgeElement(node);
+        flyer.classList.add('flying-dom-node');
+        document.body.appendChild(flyer);
+        flyer.style.position = 'fixed';
+        flyer.style.pointerEvents = 'none';
+        flyer.style.zIndex = '12060';
+        flyer.style.margin = '0';
+        flyer.style.display = 'inline-flex';
+        flyer.style.width = 'max-content';
+        flyer.style.maxWidth = 'none';
+        const fRect = flyer.getBoundingClientRect();
+        const startX = start.left + (start.width - fRect.width) / 2;
+        const startY = start.top + (start.height - fRect.height) / 2;
+        flyer.style.left = `${startX}px`;
+        flyer.style.top = `${startY}px`;
+        if (delayStart) await ui.wait(150);
+        if (ui.isStopping) { flyer.remove(); return; }
+        const endX = end.left + (end.width - fRect.width) / 2;
+        const endY = end.top + (end.height - fRect.height) / 2;
+        const dx = endX - startX;
+        const dy = endY - startY;
+        await ui.wait(20);
+        flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
+        flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
+        flyer.style.opacity = '0.95';
+        await ui.wait(ui.baseDelay);
+        await ui.wait(100);
+        flyer.remove();
+    },
+    animateDomPropertyMutation: async ({ targetNode, sourceTokenId = null, payload = null, property = '', applyMutation = null }) => {
+        if (ui.skipMode || ui.isStopping || !targetNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.ensureDrawerOpen('dom');
+        await ui.wait(220);
+        ui.renderDomPanel();
+        const targetEl = ui.getDomTreeNodeElement(targetNode);
+        if (!targetEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.renderDomPanel();
+            return;
+        }
+        const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
+        const replacedNodes = (property === 'innerText' || property === 'innerHTML') ? (targetNode.children || []) : [];
+        const replacedEls = replacedNodes.map((child) => ui.getDomTreeNodeElement(child)).filter(Boolean);
+        const attrEls = ui.getDomAttributeElements(targetEl, property);
+        const insertionTarget = ((property === 'innerText' || property === 'innerHTML') && replacedEls.length === 0)
+            ? (() => {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'dom-tree-node dom-insert-target dom-insert-space';
+                placeholder.innerHTML = '<span class="dom-tree-attr">insertion</span>';
+                targetEl.insertAdjacentElement('afterend', placeholder);
+                return placeholder;
+            })()
+            : null;
+        const flyTarget = replacedEls[0] || insertionTarget || targetEl;
+        const flowEls = [sourceEl, targetEl].filter(Boolean);
+        targetEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+        targetEl.classList.add('dom-parent-highlight');
+        replacedEls.forEach((nodeEl) => nodeEl.classList.add('dom-replaced-highlight'));
+        ui.setDomAttributeHighlight(attrEls, true);
+        if (replacedEls.length > 0) flyTarget.classList.add('dom-insert-space');
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
+        await ui.wait(220);
+        if (sourceEl) await ui.flyHelper(payload, sourceEl, flyTarget, false);
+        await ui.wait(220);
+        if (typeof applyMutation === 'function') await applyMutation();
+        ui.renderDomPanel();
+        const refreshedTarget = ui.getDomTreeNodeElement(targetNode);
+        const refreshedAttrEls = ui.getDomAttributeElements(refreshedTarget, property);
+        if (refreshedTarget) refreshedTarget.classList.add('dom-parent-highlight');
+        ui.setDomAttributeHighlight(refreshedAttrEls, true);
+        await ui.wait(240);
+        targetEl.classList.remove('dom-parent-highlight');
+        flyTarget.classList.remove('dom-insert-space');
+        replacedEls.forEach((nodeEl) => nodeEl.classList.remove('dom-replaced-highlight'));
+        if (refreshedTarget) refreshedTarget.classList.remove('dom-parent-highlight');
+        ui.setDomAttributeHighlight(attrEls, false);
+        ui.setDomAttributeHighlight(refreshedAttrEls, false);
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
+        await ui.wait(120);
+    },
+    animateDomAppendMutation: async ({ parentNode, childNode = null, sourceTokenId = null, applyMutation = null }) => {
+        if (ui.skipMode || ui.isStopping || !parentNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.ensureDrawerOpen('dom');
+        await ui.wait(220);
+        ui.renderDomPanel();
+        const parentEl = ui.getDomTreeNodeElement(parentNode);
+        if (!parentEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.renderDomPanel();
+            return;
+        }
+        const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
+        const insertionTarget = document.createElement('div');
+        insertionTarget.className = 'dom-tree-node dom-insert-target dom-insert-space';
+        insertionTarget.innerHTML = '<span class="dom-tree-attr">append</span>';
+        parentEl.insertAdjacentElement('afterend', insertionTarget);
+        const flowEls = [sourceEl, parentEl].filter(Boolean);
+        parentEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+        parentEl.classList.add('dom-parent-highlight');
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
+        await ui.wait(220);
+        if (sourceEl) {
+            if (childNode && (childNode.__domType === 'element' || childNode.__domType === 'text')) await ui.flyDomNodeFromToken(childNode, sourceEl, insertionTarget, false);
+            else await ui.flyHelper(childNode, sourceEl, insertionTarget, false);
+        }
+        await ui.wait(120);
+        if (typeof applyMutation === 'function') await applyMutation();
+        ui.renderDomPanel();
+        const refreshedParent = ui.getDomTreeNodeElement(parentNode);
+        const newChildEl = childNode ? ui.getDomTreeNodeElement(childNode) : null;
+        if (refreshedParent) refreshedParent.classList.add('dom-parent-highlight');
+        if (newChildEl) newChildEl.classList.add('dom-highlight');
+        await ui.wait(260);
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
+        parentEl.classList.remove('dom-parent-highlight');
+        insertionTarget.remove();
+        if (refreshedParent) {
+            refreshedParent.classList.remove('dom-parent-highlight');
+            refreshedParent.classList.remove('dom-insert-space');
+        }
+        if (newChildEl) newChildEl.classList.remove('dom-highlight');
+        await ui.wait(120);
+    },
+    animateDomRemoveMutation: async ({ parentNode, removedNode = null, sourceTokenId = null, applyMutation = null }) => {
+        if (ui.skipMode || ui.isStopping || !parentNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.ensureDrawerOpen('dom');
+        await ui.wait(220);
+        ui.renderDomPanel();
+        const parentEl = ui.getDomTreeNodeElement(parentNode);
+        if (!parentEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.renderDomPanel();
+            return;
+        }
+        const removedEl = removedNode ? ui.getDomTreeNodeElement(removedNode) : null;
+        const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
+        const flowEls = [sourceEl, removedEl || parentEl].filter(Boolean);
+        parentEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+        parentEl.classList.add('dom-parent-highlight');
+        if (removedEl) removedEl.classList.add('dom-replaced-highlight');
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
+        await ui.wait(220);
+        if (sourceEl && removedEl && removedNode) await ui.flyDomNodeFromToken(removedNode, sourceEl, removedEl, false);
+        if (removedEl) {
+            removedEl.classList.add('dom-remove-leave');
+            await ui.wait(340);
+        }
+        if (typeof applyMutation === 'function') await applyMutation();
+        ui.renderDomPanel();
+        const refreshedParent = ui.getDomTreeNodeElement(parentNode);
+        if (refreshedParent) refreshedParent.classList.add('dom-parent-highlight');
+        await ui.wait(220);
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
+        parentEl.classList.remove('dom-parent-highlight');
+        if (removedEl) {
+            removedEl.classList.remove('dom-replaced-highlight');
+            removedEl.classList.remove('dom-remove-leave');
+        }
+        if (refreshedParent) refreshedParent.classList.remove('dom-parent-highlight');
+        await ui.wait(120);
     },
     renderDomPanel: () => {
         const treeView = document.getElementById('dom-view-tree');
@@ -661,12 +954,61 @@ export const ui = {
         flyer.remove();
     },
 
-    animateAssignment: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const tokenEl = document.getElementById(targetTokenId); const memId = ui.getMemoryValueElementId(varName, index); ui.ensureVisible(memId); const memEl = document.getElementById(memId); await ui.flyHelper(value, tokenEl, memEl); },
-    animateRead: async (varName, value, targetTokenId, index = null) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = ui.getMemoryValueElementId(varName, index); ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); await ui.flyHelper(value, memEl, tokenEl); },
+    animateAssignment: async (varName, value, targetTokenId, index = null) => {
+        if (ui.skipMode || ui.isStopping) return;
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(220);
+        const tokenEl = document.getElementById(targetTokenId);
+        const memId = ui.getMemoryValueElementId(varName, index);
+        ui.ensureVisible(memId);
+        const memEl = document.getElementById(memId);
+        if (!tokenEl || !memEl) return;
+        await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
+            await ui.flyHelper(value, tokenEl, memEl, false);
+        });
+    },
+    animateRead: async (varName, value, targetTokenId, index = null) => {
+        if (ui.skipMode || ui.isStopping) return;
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(220);
+        const memId = ui.getMemoryValueElementId(varName, index);
+        ui.ensureVisible(memId);
+        const memEl = document.getElementById(memId);
+        const tokenEl = document.getElementById(targetTokenId);
+        if (!tokenEl || !memEl) return;
+        await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
+            await ui.flyHelper(value, memEl, tokenEl, false);
+        });
+    },
     visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(800); },
-    animateReadHeader: async (varName, value, targetTokenId) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = `mem-header-${varName}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); await ui.flyHelper(value, memEl, tokenEl); },
+    animateReadHeader: async (varName, value, targetTokenId) => {
+        if (ui.skipMode || ui.isStopping) return;
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(220);
+        const memId = `mem-header-${varName}`;
+        ui.ensureVisible(memId);
+        const memEl = document.getElementById(memId);
+        const tokenEl = document.getElementById(targetTokenId);
+        if (!tokenEl || !memEl) return;
+        await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
+            await ui.flyHelper(value, memEl, tokenEl, false);
+        });
+    },
     animateReturnHeader: async (varName, value, targetTokenId) => { await ui.animateReadHeader(varName, value, targetTokenId); },
-    animateSpliceRead: async (varName, values, targetTokenId, startIndex) => { if (ui.skipMode || ui.isStopping) return; await ui.ensureDrawerOpen('memory'); const memId = `mem-val-${varName}-${startIndex}`; ui.ensureVisible(memId); const memEl = document.getElementById(memId); const tokenEl = document.getElementById(targetTokenId); if (!memEl || !tokenEl) return; const valStr = `[${values.map(v => JSON.stringify(formatValue(v))).join(', ')}]`; await ui.flyHelper(valStr, memEl, tokenEl); },
+    animateSpliceRead: async (varName, values, targetTokenId, startIndex) => {
+        if (ui.skipMode || ui.isStopping) return;
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(220);
+        const memId = `mem-val-${varName}-${startIndex}`;
+        ui.ensureVisible(memId);
+        const memEl = document.getElementById(memId);
+        const tokenEl = document.getElementById(targetTokenId);
+        if (!memEl || !tokenEl) return;
+        const valStr = `[${values.map(v => JSON.stringify(formatValue(v))).join(', ')}]`;
+        await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
+            await ui.flyHelper(valStr, memEl, tokenEl, false);
+        });
+    },
     animateOperationCollapse: async (domIds, result) => { if (ui.skipMode || ui.isStopping) return; const elements = domIds.map(id => document.getElementById(id)).filter(e => e); if (elements.length === 0) return; elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.backgroundColor = 'rgba(167, 139, 250, 0.4)'; el.style.boxShadow = '0 0 2px rgba(167, 139, 250, 0.6)'; }); await ui.wait(ui.baseDelay); elements.forEach(el => { el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; el.style.opacity = '0.5'; }); await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
     animateReturnToCall: async (callDomIds, result, sourceId = null) => { if (ui.skipMode) { const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); if(elements.length > 0) { const first = elements[0]; if(!ui.modifiedTokens.has(first.id)) ui.modifiedTokens.set(first.id, { original: first.innerText, transient: true }); first.innerText = valueToVisualText(result); first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) { const el = elements[i]; if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.display = 'none'; } } return; } const startEl = document.getElementById(callDomIds[0]); if(!startEl) return; if (sourceId) { const sourceEl = document.getElementById(sourceId); if (sourceEl) { await ui.flyHelper(result, sourceEl, startEl, false); } } const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.opacity = '0.5'; }); if (!sourceId) await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
     animateParamPass: async (value, sourceId, targetId) => { if (ui.skipMode || ui.isStopping) return; const sourceEl = document.getElementById(sourceId); const targetEl = document.getElementById(targetId); await ui.flyHelper(value, sourceEl, targetEl); }

@@ -24,7 +24,14 @@ export const formatValue = (val) => {
         const tag = String(val.tagName || 'node').toLowerCase();
         const idPart = val.id ? `#${val.id}` : '';
         const classPart = val.className ? `.${String(val.className).trim().replace(/\s+/g, '.')}` : '';
-        return `${tag}${idPart}${classPart}`;
+        const attrsPart = Object.keys(val.attributes || {})
+            .filter((name) => name !== 'id' && name !== 'class')
+            .map((name) => {
+                const attrValue = String(val.attributes[name]).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                return `[${name}="${attrValue}"]`;
+            })
+            .join('');
+        return `${tag}${idPart}${classPart}${attrsPart}`;
     }
     if (typeof val === 'object' && val !== null && (val.type === 'arrow_func' || val.type === 'function_expr')) return `f (${val.params.join(',')})`;
     return val;

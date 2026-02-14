@@ -151,6 +151,23 @@ export class Interpreter {
         }
         return expressionNode.domIds[0];
     }
+    collapseExpressionTokens(domIds, keepTokenId) {
+        if (!domIds || domIds.length === 0) return;
+        for (const tokenId of domIds) {
+            if (tokenId === keepTokenId) continue;
+            const tokenEl = document.getElementById(tokenId);
+            if (!tokenEl) continue;
+            if (!this.ui.modifiedTokens.has(tokenId)) this.ui.modifiedTokens.set(tokenId, { original: tokenEl.innerText, transient: true });
+            tokenEl.style.display = 'none';
+        }
+    }
+    getCallReplacementTokenId(callNode) {
+        if (!callNode) return null;
+        if (callNode.callee && callNode.callee.domIds && callNode.callee.domIds.length > 0) {
+            return callNode.callee.domIds[callNode.callee.domIds.length - 1];
+        }
+        return (callNode.domIds && callNode.domIds.length > 0) ? callNode.domIds[0] : null;
+    }
 
     async execute(node) {
         if (this.shouldStop) return;
@@ -189,12 +206,32 @@ export class Interpreter {
                         await this.ui.updateMemory(this.scopeStack, targetName, 'write', prop);
                     }
                 } else if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
-                    obj[prop] = val;
                     if (isVirtualDomValue(obj)) {
-                        this.refreshDomView();
-                        if (typeof this.ui.animateDomMutation === 'function') {
-                            await this.ui.animateDomMutation(obj, this.getExpressionDisplayTokenId(node.value), val);
+                        const sourceTokenId = this.getExpressionDisplayTokenId(node.value);
+                        const domNodeVisible = typeof this.ui.getDomTreeNodeElement === 'function' ? Boolean(this.ui.getDomTreeNodeElement(obj)) : true;
+                        if (!domNodeVisible && targetName && targetName !== 'document') {
+                            await this.ui.updateMemory(this.scopeStack, targetName, 'read');
+                            await this.ui.wait(220);
                         }
+                        if (typeof this.ui.animateDomPropertyMutation === 'function') {
+                            await this.ui.animateDomPropertyMutation({
+                                targetNode: obj,
+                                sourceTokenId,
+                                payload: val,
+                                property: prop,
+                                applyMutation: async () => { obj[prop] = val; }
+                            });
+                            this.refreshDomView();
+                        } else {
+                            obj[prop] = val;
+                            this.refreshDomView();
+                            if (typeof this.ui.animateDomMutation === 'function') {
+                                await this.ui.animateDomMutation(obj, sourceTokenId, val);
+                            }
+                        }
+                        if (targetName && targetName !== 'document') await this.ui.updateMemory(this.scopeStack, targetName, 'write');
+                    } else {
+                        obj[prop] = val;
                     }
                 }
             }
@@ -498,16 +535,9 @@ export class Interpreter {
                 const domValue = obj[prop];
                 if (typeof domValue === 'function') return domValue.bind(obj);
                 if (node.domIds && node.domIds.length > 0) {
-                    if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, node.domIds[0]);
-                    this.ui.replaceTokenText(node.domIds[0], domValue, true);
-                    for (let i = 1; i < node.domIds.length; i++) {
-                        const el = document.getElementById(node.domIds[i]);
-                        if (el) {
-                            if (!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], { original: el.innerText, transient: true });
-                            el.style.display = 'none';
-                        }
-                    }
-                    await this.ui.wait(800);
+                    if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, node.domIds[0], domValue, node.domIds, prop);
+                    else this.ui.replaceTokenText(node.domIds[0], domValue, true);
+                    this.collapseExpressionTokens(node.domIds, node.domIds[0]);
                 }
                 return domValue;
             }
@@ -520,7 +550,33 @@ export class Interpreter {
             const argValues = []; for (const arg of node.args) argValues.push(await this.evaluate(arg)); await this.ui.wait(800);
             if (node.callee instanceof MemberExpr) {
                 let obj; let arrName = null;
-                if (node.callee.object instanceof Identifier) { arrName = node.callee.object.name; const scopedVar = this.currentScope.get(arrName); obj = scopedVar.value; } else { obj = await this.evaluate(node.callee.object); }
+                let domOwner = null;
+                let domOwnerName = null;
+                let classListProxy = false;
+                if (node.callee.object instanceof Identifier) {
+                    arrName = node.callee.object.name;
+                    const scopedVar = this.currentScope.get(arrName);
+                    obj = scopedVar.value;
+                    if (isVirtualDomValue(obj)) {
+                        domOwner = obj;
+                        domOwnerName = arrName;
+                    }
+                } else if (node.callee.object instanceof MemberExpr && !node.callee.object.computed && node.callee.object.property && node.callee.object.property.value === 'classList') {
+                    const ownerExpr = node.callee.object.object;
+                    if (ownerExpr instanceof Identifier) {
+                        domOwnerName = ownerExpr.name;
+                        const ownerScopedVar = this.currentScope.get(domOwnerName);
+                        domOwner = ownerScopedVar.value;
+                    } else {
+                        domOwner = await this.evaluate(ownerExpr);
+                    }
+                    if (domOwner && (typeof domOwner === 'object' || typeof domOwner === 'function')) {
+                        obj = domOwner.classList;
+                        classListProxy = true;
+                    } else {
+                        obj = undefined;
+                    }
+                } else { obj = await this.evaluate(node.callee.object); }
                 if (Array.isArray(obj) && arrName) {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value; let result;
                     if (method === 'push') { const newIndex = obj.length; for (let i = 0; i < argValues.length; i++) { const val = argValues[i]; const currentIdx = newIndex + i; obj[currentIdx] = undefined; await this.ui.updateMemory(this.scopeStack); if (node.args[i]) { await this.ui.animateAssignment(arrName, val, node.args[i].domIds[0], currentIdx); } obj[currentIdx] = val; await this.ui.updateMemory(this.scopeStack, arrName, 'write', currentIdx); } result = obj.length; await this.ui.animateReturnHeader(arrName, result, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; } 
@@ -543,56 +599,152 @@ export class Interpreter {
                 if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
                     if (typeof obj[method] === 'function') {
-                        const result = obj[method](...argValues);
-                        if (isVirtualDomValue(obj)) {
-                            if (method === 'appendChild') {
-                                this.refreshDomView();
-                                const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? node.args[0].domIds[0] : null;
-                                if (typeof this.ui.animateDomMutation === 'function') {
-                                    await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
-                                }
-                            } else if (method === 'removeChild') {
-                                this.refreshDomView();
-                                const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? node.args[0].domIds[0] : null;
-                                if (typeof this.ui.animateDomMutation === 'function') {
-                                    await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
-                                }
-                            } else if (['getElementById', 'querySelector'].includes(method) && result) {
-                                const callTargetTokenId = (node.callee && node.callee.domIds && node.callee.domIds.length > 0)
-                                    ? node.callee.domIds[node.callee.domIds.length - 1]
-                                    : node.domIds[0];
-                                node.resultTokenId = callTargetTokenId;
-                                if (typeof this.ui.animateDomReadToToken === 'function') {
-                                    await this.ui.animateDomReadToToken(result, callTargetTokenId);
-                                }
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                for (let i = 0; i < node.domIds.length; i++) {
-                                    const currentId = node.domIds[i];
-                                    if (currentId === callTargetTokenId) continue;
-                                    const el = document.getElementById(currentId);
-                                    if (el) {
-                                        if (!this.ui.modifiedTokens.has(currentId)) this.ui.modifiedTokens.set(currentId, { original: el.innerText, transient: true });
-                                        el.style.display = 'none';
-                                    }
-                                }
-                                await this.ui.wait(800);
-                                return result;
-                            } else if (method === 'createElement') {
-                                await this.ui.animateOperationCollapse(node.domIds, result);
-                                await this.ui.wait(800);
-                                return result;
+                        if (classListProxy && domOwner && method === 'add') {
+                            let result;
+                            const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
+                            const payload = argValues.length > 0 ? argValues[0] : '';
+                            const domNodeVisible = typeof this.ui.getDomTreeNodeElement === 'function' ? Boolean(this.ui.getDomTreeNodeElement(domOwner)) : true;
+                            if (!domNodeVisible && domOwnerName && domOwnerName !== 'document') {
+                                await this.ui.updateMemory(this.scopeStack, domOwnerName, 'read');
+                                await this.ui.wait(220);
                             }
+                            if (typeof this.ui.animateDomPropertyMutation === 'function') {
+                                await this.ui.animateDomPropertyMutation({
+                                    targetNode: domOwner,
+                                    sourceTokenId,
+                                    payload,
+                                    property: 'class',
+                                    applyMutation: async () => { result = obj[method](...argValues); }
+                                });
+                            } else {
+                                result = obj[method](...argValues);
+                                this.refreshDomView();
+                                if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(domOwner, sourceTokenId, payload);
+                            }
+                            this.refreshDomView();
+                            if (domOwnerName && domOwnerName !== 'document') await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write');
                             this.ui.replaceTokenText(node.domIds[0], result, true);
-                            for (let i = 1; i < node.domIds.length; i++) {
-                                const el = document.getElementById(node.domIds[i]);
-                                if (el) {
-                                    if (!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], { original: el.innerText, transient: true });
-                                    el.style.display = 'none';
-                                }
-                            }
+                            this.collapseExpressionTokens(node.domIds, node.domIds[0]);
                             await this.ui.wait(800);
                             return result;
                         }
+                        if (isVirtualDomValue(obj)) {
+                            let result;
+                            if (method === 'appendChild') {
+                                const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
+                                if (typeof this.ui.animateDomAppendMutation === 'function') {
+                                    await this.ui.animateDomAppendMutation({
+                                        parentNode: obj,
+                                        childNode: argValues[0],
+                                        sourceTokenId,
+                                        applyMutation: async () => { result = obj[method](...argValues); }
+                                    });
+                                } else {
+                                    result = obj[method](...argValues);
+                                    this.refreshDomView();
+                                    if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
+                                }
+                                this.refreshDomView();
+                                this.ui.replaceTokenText(node.domIds[0], result, true);
+                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                await this.ui.wait(800);
+                                return result;
+                            }
+                            if (method === 'removeChild') {
+                                const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
+                                if (typeof this.ui.animateDomRemoveMutation === 'function') {
+                                    await this.ui.animateDomRemoveMutation({
+                                        parentNode: obj,
+                                        removedNode: argValues[0],
+                                        sourceTokenId,
+                                        applyMutation: async () => { result = obj[method](...argValues); }
+                                    });
+                                } else {
+                                    result = obj[method](...argValues);
+                                    this.refreshDomView();
+                                    if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
+                                }
+                                this.refreshDomView();
+                                this.ui.replaceTokenText(node.domIds[0], result, true);
+                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                await this.ui.wait(800);
+                                return result;
+                            }
+                            if (['getElementById', 'querySelector'].includes(method)) {
+                                result = obj[method](...argValues);
+                                if (result) {
+                                    const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                    node.resultTokenId = callTargetTokenId;
+                                    if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(result, callTargetTokenId, result, node.domIds);
+                                    else this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                    this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                }
+                                return result;
+                            }
+                            if (method === 'getAttribute') {
+                                result = obj[method](...argValues);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                const attrName = (argValues.length > 0) ? String(argValues[0]) : '';
+                                if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, callTargetTokenId, result, node.domIds, attrName);
+                                else this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                return result;
+                            }
+                            if (method === 'setAttribute') {
+                                const attrName = (argValues.length > 0) ? String(argValues[0]) : '';
+                                const attrValue = (argValues.length > 1) ? argValues[1] : '';
+                                const sourceTokenId = (node.args.length > 1 && node.args[1].domIds)
+                                    ? this.getExpressionDisplayTokenId(node.args[1])
+                                    : ((node.args.length > 0 && node.args[0].domIds) ? this.getExpressionDisplayTokenId(node.args[0]) : null);
+                                const domNodeVisible = typeof this.ui.getDomTreeNodeElement === 'function' ? Boolean(this.ui.getDomTreeNodeElement(obj)) : true;
+                                if (!domNodeVisible && arrName && arrName !== 'document') {
+                                    await this.ui.updateMemory(this.scopeStack, arrName, 'read');
+                                    await this.ui.wait(220);
+                                }
+                                if (typeof this.ui.animateDomPropertyMutation === 'function') {
+                                    await this.ui.animateDomPropertyMutation({
+                                        targetNode: obj,
+                                        sourceTokenId,
+                                        payload: attrValue,
+                                        property: attrName,
+                                        applyMutation: async () => { result = obj[method](...argValues); }
+                                    });
+                                } else {
+                                    result = obj[method](...argValues);
+                                    this.refreshDomView();
+                                    if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, attrValue);
+                                }
+                                this.refreshDomView();
+                                if (arrName && arrName !== 'document') await this.ui.updateMemory(this.scopeStack, arrName, 'write');
+                                this.ui.replaceTokenText(node.domIds[0], result, true);
+                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                await this.ui.wait(800);
+                                return result;
+                            }
+                            if (method === 'createElement') {
+                                result = obj[method](...argValues);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                const tokenEls = (node.domIds || []).map((id) => document.getElementById(id)).filter(Boolean);
+                                if (tokenEls.length > 0 && typeof this.ui.setFlowHighlight === 'function') this.ui.setFlowHighlight(tokenEls, true);
+                                await this.ui.wait(180);
+                                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                await this.ui.wait(180);
+                                if (tokenEls.length > 0 && typeof this.ui.setFlowHighlight === 'function') this.ui.setFlowHighlight(tokenEls, false);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                await this.ui.wait(220);
+                                return result;
+                            }
+                            result = obj[method](...argValues);
+                            this.refreshDomView();
+                            if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, null, result);
+                            this.ui.replaceTokenText(node.domIds[0], result, true);
+                            this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                            await this.ui.wait(800);
+                            return result;
+                        }
+                        const result = obj[method](...argValues);
                         await this.ui.animateOperationCollapse(node.domIds, result);
                         await this.ui.wait(800);
                         return result;
