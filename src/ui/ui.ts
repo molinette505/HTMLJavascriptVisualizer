@@ -323,7 +323,21 @@ export const ui = {
     
     ensureDrawerOpen: (tabName) => {
         return new Promise(resolve => {
-            if (ui.skipMode || ui.isStopping) { resolve(); return; }
+            if (ui.skipMode || ui.isStopping) {
+                const panel = document.getElementById('right-panel');
+                if (window.innerWidth >= 800) {
+                    ui.switchTab(tabName);
+                    resolve();
+                    return;
+                }
+                if (panel) {
+                    ui.switchTab(tabName);
+                    panel.classList.add('open');
+                    ui.isDrawerOpen = true;
+                }
+                resolve();
+                return;
+            }
             if (window.innerWidth >= 800) {
                 const targetContentDesktop = document.getElementById(`view-${tabName}`);
                 if (targetContentDesktop && !targetContentDesktop.classList.contains('active')) ui.switchTab(tabName);
@@ -587,7 +601,11 @@ export const ui = {
         await ui.wait(120);
     },
     animateDomReadToToken: async (node, tokenId, replacementValue = undefined, tokenGroupIds = [], property = '') => {
-        if (ui.skipMode || ui.isStopping || !node || !tokenId) return;
+        if (ui.isStopping || !node || !tokenId) return;
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('dom');
+            return;
+        }
         await ui.ensureDrawerOpen('dom');
         await ui.wait(220);
         ui.renderDomPanel();
@@ -613,7 +631,11 @@ export const ui = {
         await ui.wait(120);
     },
     animateTokenToDomNode: async (tokenId, node, value = null) => {
-        if (ui.skipMode || ui.isStopping || !tokenId || !node) return;
+        if (ui.isStopping || !tokenId || !node) return;
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('dom');
+            return;
+        }
         const tokenEl = document.getElementById(tokenId);
         const target = ui.getDomTreeNodeElement(node);
         if (!tokenEl || !target) return;
@@ -623,7 +645,11 @@ export const ui = {
         });
     },
     animateDomMutation: async (targetNode, sourceTokenId = null, payload = null) => {
-        if (ui.skipMode || ui.isStopping || !targetNode) return;
+        if (ui.isStopping || !targetNode) return;
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('dom');
+            return;
+        }
         await ui.ensureDrawerOpen('dom');
         await ui.wait(220);
         ui.renderDomPanel();
@@ -676,7 +702,12 @@ export const ui = {
         }
     },
     animateDomPropertyMutation: async ({ targetNode, sourceTokenId = null, payload = null, property = '', applyMutation = null }) => {
-        if (ui.skipMode || ui.isStopping || !targetNode) {
+        if (ui.isStopping || !targetNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('dom');
             if (typeof applyMutation === 'function') await applyMutation();
             return;
         }
@@ -733,7 +764,12 @@ export const ui = {
         await ui.wait(120);
     },
     animateDomAppendMutation: async ({ parentNode, childNode = null, sourceTokenId = null, applyMutation = null }) => {
-        if (ui.skipMode || ui.isStopping || !parentNode) {
+        if (ui.isStopping || !parentNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('dom');
             if (typeof applyMutation === 'function') await applyMutation();
             return;
         }
@@ -779,7 +815,12 @@ export const ui = {
         await ui.wait(120);
     },
     animateDomRemoveMutation: async ({ parentNode, removedNode = null, sourceTokenId = null, applyMutation = null }) => {
-        if (ui.skipMode || ui.isStopping || !parentNode) {
+        if (ui.isStopping || !parentNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('dom');
             if (typeof applyMutation === 'function') await applyMutation();
             return;
         }
