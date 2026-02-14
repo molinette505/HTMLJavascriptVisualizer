@@ -201,6 +201,7 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.classList.add('flow-link-line');
+    svg.setAttribute('preserveAspectRatio', 'none');
     const gradientId = `flow-link-gradient-${flowGuideCounter++}`;
 
     const defs = document.createElementNS(svgNS, 'defs');
@@ -257,16 +258,17 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
     let active = true;
     const update = () => {
         if (!active) return;
+        const overlayRect = svg.getBoundingClientRect();
+        const overlayWidth = Math.max(1, overlayRect.width);
+        const overlayHeight = Math.max(1, overlayRect.height);
         const sourceRect = sourceEl.getBoundingClientRect();
         const destinationRect = destinationEl.getBoundingClientRect();
-        const startX = sourceRect.left + sourceRect.width / 2;
-        const startY = sourceRect.top + sourceRect.height / 2;
-        const endX = destinationRect.left + destinationRect.width / 2;
-        const endY = destinationRect.top + destinationRect.height / 2;
+        const startX = sourceRect.left + sourceRect.width / 2 - overlayRect.left;
+        const startY = sourceRect.top + sourceRect.height / 2 - overlayRect.top;
+        const endX = destinationRect.left + destinationRect.width / 2 - overlayRect.left;
+        const endY = destinationRect.top + destinationRect.height / 2 - overlayRect.top;
         const pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
-        svg.setAttribute('width', String(window.innerWidth));
-        svg.setAttribute('height', String(window.innerHeight));
-        svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
+        svg.setAttribute('viewBox', `0 0 ${overlayWidth} ${overlayHeight}`);
         glowPath.setAttribute('d', pathData);
         corePath.setAttribute('d', pathData);
         sourceDot.setAttribute('cx', String(startX));
