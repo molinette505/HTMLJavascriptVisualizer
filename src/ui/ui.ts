@@ -541,21 +541,21 @@ export const ui = {
         return elements;
     },
     createDomGroupHighlight: (elements) => {
-        const treeContainer = document.getElementById('dom-view-tree');
-        if (!treeContainer || !elements || elements.length === 0) return { box: null, clear: () => {} };
+        if (!elements || elements.length === 0) return { box: null, clear: () => {} };
         const rects = elements.map((element) => element.getBoundingClientRect());
-        const containerRect = treeContainer.getBoundingClientRect();
         const minTop = Math.min(...rects.map((rect) => rect.top));
         const minLeft = Math.min(...rects.map((rect) => rect.left));
         const maxRight = Math.max(...rects.map((rect) => rect.right));
         const maxBottom = Math.max(...rects.map((rect) => rect.bottom));
         const box = document.createElement('div');
         box.className = 'dom-group-highlight-box';
-        box.style.left = `${Math.max(0, minLeft - containerRect.left - 8)}px`;
-        box.style.top = `${Math.max(0, minTop - containerRect.top - 6)}px`;
+        box.style.position = 'fixed';
+        box.style.left = `${Math.max(0, minLeft - 8)}px`;
+        box.style.top = `${Math.max(0, minTop - 6)}px`;
         box.style.width = `${Math.max(24, maxRight - minLeft + 16)}px`;
         box.style.height = `${Math.max(20, maxBottom - minTop + 12)}px`;
-        treeContainer.appendChild(box);
+        box.style.zIndex = '12020';
+        document.body.appendChild(box);
         return {
             box,
             clear: () => { if (box.parentElement) box.remove(); }
