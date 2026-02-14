@@ -151,6 +151,16 @@ export class Interpreter {
         }
         return expressionNode.domIds[0];
     }
+    getIdentifierTokenId(domIds, identifierName) {
+        if (!domIds || domIds.length === 0) return null;
+        if (typeof document === 'undefined' || !identifierName) return domIds[0];
+        for (const tokenId of domIds) {
+            const tokenEl = document.getElementById(tokenId);
+            if (!tokenEl || tokenEl.style.display === 'none') continue;
+            if (String(tokenEl.innerText || '').trim() === String(identifierName)) return tokenId;
+        }
+        return domIds[0];
+    }
     collapseExpressionTokens(domIds, keepTokenId) {
         if (!domIds || domIds.length === 0) return;
         for (const tokenId of domIds) {
@@ -178,7 +188,7 @@ export class Interpreter {
         if (this.shouldStop) return;
         if (node instanceof BlockStmt) { const blockScope = new Scope("Block", this.currentScope, this.currentScope); this.scopeStack.push(blockScope); const prevScope = this.currentScope; this.currentScope = blockScope; let result; try { result = await this.executeBlock(node.body); } finally { this.currentScope = prevScope; this.scopeStack.pop(); await this.ui.updateMemory(this.scopeStack); } return result; }
         if (node instanceof MultiVarDecl) { for (const decl of node.decls) { await this.execute(decl); } return; }
-        if (node instanceof VarDecl) { await this.pause(node.line); this.currentScope.define(node.name, node.kind); await this.ui.updateMemory(this.scopeStack, node.name, 'declare'); await this.ui.wait(600); if (node.init) { if (node.init instanceof ArrayLiteral) { const arr = new Array(node.init.elements.length).fill(undefined); this.currentScope.initialize(node.name, arr); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); for(let i=0; i<node.init.elements.length; i++) { const val = await this.evaluate(node.init.elements[i]); arr[i] = val; await this.ui.animateAssignment(node.name, val, this.getExpressionDisplayTokenId(node.init.elements[i]), i); await this.ui.updateMemory(this.scopeStack, node.name, 'write', i); } } else if (node.init instanceof ArrowFunctionExpr) { const func = { type: 'arrow_func', params: node.init.params.map(p=>p.name), body: node.init.body, scope: this.currentScope, paramIds: node.init.params.map(p=>p.id) }; this.currentScope.initialize(node.name, func); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } else if (node.init instanceof FunctionExpression) { const func = await this.evaluate(node.init); this.currentScope.initialize(node.name, func); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } else { const val = await this.evaluate(node.init); this.currentScope.initialize(node.name, val); await this.ui.animateAssignment(node.name, val, this.getExpressionDisplayTokenId(node.init)); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } } }
+        if (node instanceof VarDecl) { await this.pause(node.line); this.currentScope.define(node.name, node.kind); await this.ui.updateMemory(this.scopeStack, node.name, 'declare'); await this.ui.wait(600); const varTokenId = this.getIdentifierTokenId(node.domIds, node.name); if (node.init) { if (node.init instanceof ArrayLiteral) { const arr = new Array(node.init.elements.length).fill(undefined); this.currentScope.initialize(node.name, arr); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); for(let i=0; i<node.init.elements.length; i++) { const val = await this.evaluate(node.init.elements[i]); arr[i] = val; await this.ui.animateAssignment(node.name, val, this.getExpressionDisplayTokenId(node.init.elements[i]), i, varTokenId); await this.ui.updateMemory(this.scopeStack, node.name, 'write', i); } } else if (node.init instanceof ArrowFunctionExpr) { const func = { type: 'arrow_func', params: node.init.params.map(p=>p.name), body: node.init.body, scope: this.currentScope, paramIds: node.init.params.map(p=>p.id) }; this.currentScope.initialize(node.name, func); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } else if (node.init instanceof FunctionExpression) { const func = await this.evaluate(node.init); this.currentScope.initialize(node.name, func); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } else { const val = await this.evaluate(node.init); this.currentScope.initialize(node.name, val); await this.ui.animateAssignment(node.name, val, this.getExpressionDisplayTokenId(node.init), null, varTokenId); await this.ui.updateMemory(this.scopeStack, node.name, 'write'); } } }
         else if (node instanceof Assignment) {
             await this.pause(node.line);
             let val;
@@ -189,8 +199,9 @@ export class Interpreter {
             }
             if (node.left instanceof Identifier) {
                 this.currentScope.assign(node.left.name, val);
+                const leftVarTokenId = this.getIdentifierTokenId(node.left.domIds, node.left.name);
                 if (typeof val !== 'object' || (val.type !== 'arrow_func' && val.type !== 'function_expr')) {
-                    await this.ui.animateAssignment(node.left.name, val, this.getExpressionDisplayTokenId(node.value));
+                    await this.ui.animateAssignment(node.left.name, val, this.getExpressionDisplayTokenId(node.value), null, leftVarTokenId);
                 }
                 await this.ui.updateMemory(this.scopeStack, node.left.name, 'write');
             } else if (node.left instanceof MemberExpr) {
@@ -207,13 +218,15 @@ export class Interpreter {
                 if (Array.isArray(obj)) {
                     obj[prop] = val;
                     if (targetName) {
-                        await this.ui.animateAssignment(targetName, val, this.getExpressionDisplayTokenId(node.value), prop);
+                        const targetVarTokenId = this.getIdentifierTokenId(node.left.object.domIds, targetName);
+                        await this.ui.animateAssignment(targetName, val, this.getExpressionDisplayTokenId(node.value), prop, targetVarTokenId);
                         await this.ui.updateMemory(this.scopeStack, targetName, 'write', prop);
                     }
                 } else if (obj && (typeof obj === 'object' || typeof obj === 'function')) {
                     if (isVirtualDomValue(obj)) {
                         const sourceTokenId = this.getExpressionDisplayTokenId(node.value);
                         const domNodeVisible = this.isDomNodeVisible(obj);
+                        const targetVarTokenId = this.getIdentifierTokenId(node.left.object.domIds, targetName);
                         if (!domNodeVisible && targetName && targetName !== 'document') {
                             await this.ui.updateMemory(this.scopeStack, targetName, 'read');
                             await this.ui.wait(220);
@@ -221,7 +234,7 @@ export class Interpreter {
                         if (!domNodeVisible) {
                             obj[prop] = val;
                             if (targetName && targetName !== 'document') {
-                                await this.ui.animateAssignment(targetName, obj, sourceTokenId);
+                                await this.ui.animateAssignment(targetName, obj, sourceTokenId, null, targetVarTokenId);
                             }
                         } else {
                             if (typeof this.ui.animateDomPropertyMutation === 'function') {
@@ -241,7 +254,10 @@ export class Interpreter {
                                 }
                             }
                         }
-                        if (targetName && targetName !== 'document') await this.ui.updateMemory(this.scopeStack, targetName, 'write');
+                        if (targetName && targetName !== 'document') {
+                            const stayOnDom = domNodeVisible && (prop === 'innerText' || prop === 'innerHTML');
+                            await this.ui.updateMemory(this.scopeStack, targetName, 'write', null, !stayOnDom);
+                        }
                     } else {
                         obj[prop] = val;
                     }
@@ -555,7 +571,7 @@ export class Interpreter {
             }
             return obj[prop];
         }
-        if (node instanceof UpdateExpr) { const name = node.arg.name; const currentVal = this.currentScope.get(name).value; const isInc = node.op === '++'; const newVal = isInc ? currentVal + 1 : currentVal - 1; await this.ui.animateRead(name, currentVal, node.arg.domIds[0]); if (node.prefix) { await this.ui.animateOperationCollapse(node.domIds, newVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0]); await this.ui.updateMemory(this.scopeStack, name, 'write'); return newVal; } else { await this.ui.animateOperationCollapse(node.domIds, currentVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0]); await this.ui.updateMemory(this.scopeStack, name, 'write'); return currentVal; } }
+        if (node instanceof UpdateExpr) { const name = node.arg.name; const currentVal = this.currentScope.get(name).value; const isInc = node.op === '++'; const newVal = isInc ? currentVal + 1 : currentVal - 1; const varTokenId = this.getIdentifierTokenId(node.arg.domIds, name); await this.ui.animateRead(name, currentVal, node.arg.domIds[0]); if (node.prefix) { await this.ui.animateOperationCollapse(node.domIds, newVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0], null, varTokenId); await this.ui.updateMemory(this.scopeStack, name, 'write'); return newVal; } else { await this.ui.animateOperationCollapse(node.domIds, currentVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0], null, varTokenId); await this.ui.updateMemory(this.scopeStack, name, 'write'); return currentVal; } }
         if (node instanceof TernaryExpr) { const condition = await this.evaluate(node.test); const result = condition ? await this.evaluate(node.consequent) : await this.evaluate(node.alternate); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof BinaryExpr) { const left = await this.evaluate(node.left); if (node.op === '&&' && !left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, false); await this.ui.wait(800); return false; } if (node.op === '||' && left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, true); await this.ui.wait(800); return true; } const right = await this.evaluate(node.right); let result; switch(node.op) { case '+': result = left + right; break; case '-': result = left - right; break; case '*': result = left * right; break; case '/': result = left / right; break; case '%': result = left % right; break; case '>': result = left > right; break; case '<': result = left < right; break; case '>=': result = left >= right; break; case '<=': result = left <= right; break; case '==': result = left == right; break; case '!=': result = left != right; break; case '===': result = left === right; break; case '!==': result = left !== right; break; case '&&': result = left && right; break; case '||': result = left || right; break; } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof CallExpr) {
@@ -897,6 +913,66 @@ export class Interpreter {
             if (node.callee instanceof MemberExpr) { const objVal = await this.evaluate(node.callee.object); const propName = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value; if (propName === 'toFixed' && typeof objVal === 'number') { const digits = argValues.length > 0 ? argValues[0] : 0; const res = objVal.toFixed(digits); await this.ui.animateOperationCollapse(node.domIds, `"${res}"`); await this.ui.wait(800); return res; } }
             let funcNode; let closureScope = this.globalScope; let paramNames = []; let funcName = "anonymous"; let paramIds = [];
             if (node.callee instanceof Identifier) { funcName = node.callee.name; let val = null; try { val = this.currentScope.get(node.callee.name); } catch(e) {} if (val && val.value && (val.value.type === 'arrow_func' || val.value.type === 'function_expr')) { funcNode = val.value; closureScope = val.value.scope; paramNames = val.value.params; paramIds = val.value.paramIds || []; } else if (this.functions[node.callee.name]) { funcNode = this.functions[node.callee.name]; paramNames = funcNode.params.map(p => p.name); paramIds = funcNode.params.map(p => p.id); } else { throw new Error(`Fonction ${node.callee.name} inconnue`); } }
-            if (funcNode) { const fnScope = new Scope(`${funcName}(${paramNames.join(', ')})`, closureScope, this.currentScope); this.scopeStack.push(fnScope); for (let i=0; i<paramNames.length; i++) { const pName = paramNames[i]; if (node.args[i] && paramIds[i]) { await this.ui.animateParamPass(argValues[i], node.args[i].domIds[0], paramIds[i]); } fnScope.define(pName, 'let'); fnScope.initialize(pName, argValues[i]); if (paramIds[i]) { this.ui.replaceTokenText(paramIds[i], argValues[i], false); } await this.ui.updateMemory(this.scopeStack, pName, 'declare'); } await this.ui.wait(600); const prevScope = this.currentScope; this.currentScope = fnScope; await this.ui.updateMemory(this.scopeStack); this.ui.lockTokens(node.domIds || []); this.callStack.push(node.line); let result = undefined; let returnSourceId = null; const body = funcNode.body; if (body instanceof BlockStmt) { for(const stmt of body.body) { if (stmt instanceof ReturnStmt) { await this.pause(stmt.line); result = stmt.argument ? await this.evaluate(stmt.argument) : undefined; returnSourceId = (stmt.argument && stmt.argument.domIds.length > 0) ? stmt.argument.domIds[0] : stmt.domIds[0]; break; } await this.execute(stmt); } } else { await this.pause(node.line); result = await this.evaluate(body); returnSourceId = body.domIds ? body.domIds[0] : null; } this.callStack.pop(); this.ui.unlockTokens(node.domIds || []); if (result !== undefined) { if(returnSourceId) { await this.ui.animateReturnToCall(node.domIds, result, returnSourceId); } else { await this.ui.animateReturnToCall(node.domIds, result); } await this.ui.wait(800); } this.currentScope = prevScope; this.scopeStack.pop(); await this.ui.updateMemory(this.scopeStack); for (let i=0; i<paramIds.length; i++) { if (paramIds[i]) { this.ui.resetTokenText(paramIds[i]); } } return result; } }
+            if (funcNode) {
+                const fnScope = new Scope(`${funcName}(${paramNames.join(', ')})`, closureScope, this.currentScope);
+                this.scopeStack.push(fnScope);
+                for (let i=0; i<paramNames.length; i++) {
+                    const pName = paramNames[i];
+                    const argNode = node.args[i];
+                    const argValue = argValues[i];
+                    if (argNode && paramIds[i]) {
+                        await this.ui.animateParamPass(argValue, argNode.domIds[0], paramIds[i]);
+                    }
+                    fnScope.define(pName, 'let');
+                    fnScope.initialize(pName, argValue);
+                    if (paramIds[i]) {
+                        const isFunctionIdentifierArg = (argNode instanceof Identifier)
+                            && argValue
+                            && (argValue.type === 'arrow_func' || argValue.type === 'function_expr');
+                        if (isFunctionIdentifierArg) this.ui.setRawTokenText(paramIds[i], argNode.name, false);
+                        else this.ui.replaceTokenText(paramIds[i], argValue, false);
+                    }
+                    await this.ui.updateMemory(this.scopeStack, pName, 'declare');
+                }
+                await this.ui.wait(600);
+                const prevScope = this.currentScope;
+                this.currentScope = fnScope;
+                await this.ui.updateMemory(this.scopeStack);
+                this.ui.lockTokens(node.domIds || []);
+                this.callStack.push(node.line);
+                let result = undefined;
+                let returnSourceId = null;
+                const body = funcNode.body;
+                if (body instanceof BlockStmt) {
+                    for(const stmt of body.body) {
+                        if (stmt instanceof ReturnStmt) {
+                            await this.pause(stmt.line);
+                            result = stmt.argument ? await this.evaluate(stmt.argument) : undefined;
+                            returnSourceId = (stmt.argument && stmt.argument.domIds.length > 0) ? stmt.argument.domIds[0] : stmt.domIds[0];
+                            break;
+                        }
+                        await this.execute(stmt);
+                    }
+                } else {
+                    await this.pause(node.line);
+                    result = await this.evaluate(body);
+                    returnSourceId = body.domIds ? body.domIds[0] : null;
+                }
+                this.callStack.pop();
+                this.ui.unlockTokens(node.domIds || []);
+                if (result !== undefined) {
+                    if(returnSourceId) await this.ui.animateReturnToCall(node.domIds, result, returnSourceId);
+                    else await this.ui.animateReturnToCall(node.domIds, result);
+                    await this.ui.wait(800);
+                }
+                this.currentScope = prevScope;
+                this.scopeStack.pop();
+                await this.ui.updateMemory(this.scopeStack);
+                for (let i=0; i<paramIds.length; i++) {
+                    if (paramIds[i]) this.ui.resetTokenText(paramIds[i]);
+                }
+                return result;
+            }
+        }
     }
 }

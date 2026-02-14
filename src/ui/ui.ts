@@ -964,10 +964,42 @@ export const ui = {
         if (document.getElementById(directId)) return directId;
         return `mem-header-${varName}`;
     },
+    getMemoryVariableNameElements: (varName) => {
+        if (!varName) return [];
+        return Array.from(document.querySelectorAll('#memory-container .mem-name'))
+            .filter((element) => String(element.innerText || '').trim() === String(varName));
+    },
+    getCodeVariableNameElements: (varName, preferredTokenId = null) => {
+        if (!varName) return [];
+        if (preferredTokenId) {
+            const preferred = document.getElementById(preferredTokenId);
+            if (preferred && preferred.style.display !== 'none' && String(preferred.innerText || '').trim() === String(varName)) {
+                return [preferred];
+            }
+            return [];
+        }
+        return Array.from(document.querySelectorAll('#code-display span[id]'))
+            .filter((element) => element.style.display !== 'none')
+            .filter((element) => String(element.innerText || '').trim() === String(varName))
+            .slice(0, 1);
+    },
+    setVariableRelationHighlight: (varName, preferredTokenId = null, enabled = true) => {
+        const memoryNames = ui.getMemoryVariableNameElements(varName);
+        const codeNames = ui.getCodeVariableNameElements(varName, preferredTokenId);
+        memoryNames.forEach((element) => {
+            if (enabled) element.classList.add('flow-var-memory');
+            else element.classList.remove('flow-var-memory');
+        });
+        codeNames.forEach((element) => {
+            if (enabled) element.classList.add('flow-var-code');
+            else element.classList.remove('flow-var-code');
+        });
+        return () => ui.setVariableRelationHighlight(varName, preferredTokenId, false);
+    },
 
-    updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null) => {
+    updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null, openDrawer = true) => {
         if(ui.isStopping) return;
-        if(flashVarName) await ui.ensureDrawerOpen('memory');
+        if(flashVarName && openDrawer) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
         const visibleScopes = scopeStack.filter((scope) => {
@@ -1167,7 +1199,7 @@ export const ui = {
         }
     },
 
-    animateAssignment: async (varName, value, targetTokenId, index = null) => {
+    animateAssignment: async (varName, value, targetTokenId, index = null, varTokenId = null) => {
         if (ui.skipMode || ui.isStopping) return;
         await ui.ensureDrawerOpen('memory');
         await ui.wait(220);
@@ -1176,9 +1208,14 @@ export const ui = {
         ui.ensureVisible(memId);
         const memEl = document.getElementById(memId);
         if (!tokenEl || !memEl) return;
-        await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
-            await ui.flyHelper(value, tokenEl, memEl, false);
-        });
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true);
+        try {
+            await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
+                await ui.flyHelper(value, tokenEl, memEl, false);
+            });
+        } finally {
+            clearVarHighlight();
+        }
     },
     animateRead: async (varName, value, targetTokenId, index = null) => {
         if (ui.skipMode || ui.isStopping) return;
@@ -1189,9 +1226,14 @@ export const ui = {
         const memEl = document.getElementById(memId);
         const tokenEl = document.getElementById(targetTokenId);
         if (!tokenEl || !memEl) return;
-        await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
-            await ui.flyHelper(value, memEl, tokenEl, false);
-        });
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, targetTokenId, true);
+        try {
+            await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
+                await ui.flyHelper(value, memEl, tokenEl, false);
+            });
+        } finally {
+            clearVarHighlight();
+        }
     },
     visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(800); },
     animateReadHeader: async (varName, value, targetTokenId) => {
@@ -1203,9 +1245,14 @@ export const ui = {
         const memEl = document.getElementById(memId);
         const tokenEl = document.getElementById(targetTokenId);
         if (!tokenEl || !memEl) return;
-        await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
-            await ui.flyHelper(value, memEl, tokenEl, false);
-        });
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, targetTokenId, true);
+        try {
+            await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
+                await ui.flyHelper(value, memEl, tokenEl, false);
+            });
+        } finally {
+            clearVarHighlight();
+        }
     },
     animateReturnHeader: async (varName, value, targetTokenId) => { await ui.animateReadHeader(varName, value, targetTokenId); },
     animateSpliceRead: async (varName, values, targetTokenId, startIndex) => {
@@ -1218,9 +1265,14 @@ export const ui = {
         const tokenEl = document.getElementById(targetTokenId);
         if (!memEl || !tokenEl) return;
         const valStr = `[${values.map(v => JSON.stringify(formatValue(v))).join(', ')}]`;
-        await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
-            await ui.flyHelper(valStr, memEl, tokenEl, false);
-        });
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, targetTokenId, true);
+        try {
+            await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
+                await ui.flyHelper(valStr, memEl, tokenEl, false);
+            });
+        } finally {
+            clearVarHighlight();
+        }
     },
     animateOperationCollapse: async (domIds, result) => { if (ui.skipMode || ui.isStopping) return; const elements = domIds.map(id => document.getElementById(id)).filter(e => e); if (elements.length === 0) return; elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.backgroundColor = 'rgba(167, 139, 250, 0.4)'; el.style.boxShadow = '0 0 2px rgba(167, 139, 250, 0.6)'; }); await ui.wait(ui.baseDelay); elements.forEach(el => { el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; el.style.opacity = '0.5'; }); await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
     animateReturnToCall: async (callDomIds, result, sourceId = null) => { if (ui.skipMode) { const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); if(elements.length > 0) { const first = elements[0]; if(!ui.modifiedTokens.has(first.id)) ui.modifiedTokens.set(first.id, { original: first.innerText, transient: true }); first.innerText = valueToVisualText(result); first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) { const el = elements[i]; if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.display = 'none'; } } return; } const startEl = document.getElementById(callDomIds[0]); if(!startEl) return; if (sourceId) { const sourceEl = document.getElementById(sourceId); if (sourceEl) { await ui.flyHelper(result, sourceEl, startEl, false); } } const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.opacity = '0.5'; }); if (!sourceId) await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
