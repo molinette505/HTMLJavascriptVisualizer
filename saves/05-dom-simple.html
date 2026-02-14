@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>DOM simple</title>
+</head>
+<body>
+  <div id="app" class="app">
+    <h2 id="title">Courses</h2>
+    <ul id="items">
+      <li class="item">Pain</li>
+    </ul>
+    <input id="item-input" value="Lait">
+  </div>
+
+  <script>
+let titre = document.getElementById("title");
+let liste = document.getElementById("items");
+let champ = document.getElementById("item-input");
+
+titre.innerText = "Liste de courses";
+
+let element = document.createElement("li");
+element.className = "item nouveau";
+element.innerText = champ.value;
+liste.appendChild(element);
+
+console.log("elements:", liste.children.length);
+  </script>
+</body>
+</html>

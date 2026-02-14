@@ -35,8 +35,7 @@ document.getElementById('code-input').addEventListener('keydown', (e) => {
         }
         const loadPopup = document.getElementById('load-popup');
         if (loadPopup.classList.contains('visible')) {
-            if (document.activeElement && document.activeElement.id === 'load-dom-select') app.loadSelectedDomDocument();
-            else app.loadSelectedScenario();
+            app.loadSelectedScenario();
         }
     }
 });

@@ -90,6 +90,19 @@ const valueToVisualText = (value) => {
     return JSON.stringify(formatValue(value));
 };
 
+const getMemoryTypeLabel = (value, hasOwnValue = true) => {
+    if (!hasOwnValue) return 'empty';
+    if (Array.isArray(value)) return 'arr[]';
+    if (isVirtualDomValue(value)) return 'html';
+    if (value && typeof value === 'object' && value.type && String(value.type).includes('func')) return 'f()';
+    if (typeof value === 'function') return 'f()';
+    if (typeof value === 'number') return 'num';
+    if (typeof value === 'boolean') return 'bool';
+    if (typeof value === 'string') return 'string';
+    if (value === undefined) return 'undef';
+    return 'obj';
+};
+
 const domTreeRefs = new WeakMap();
 let domTreeRefCounter = 1;
 
@@ -969,6 +982,17 @@ export const ui = {
         return Array.from(document.querySelectorAll('#memory-container .mem-name'))
             .filter((element) => String(element.innerText || '').trim() === String(varName));
     },
+    getMemoryArrayIndexElements: (varName, index = null) => {
+        if (!varName || index === null || index === undefined) return [];
+        const path = String(index);
+        return Array.from(document.querySelectorAll('#memory-container .array-element .mem-name'))
+            .filter((element) => {
+                const row = element.closest('.array-element');
+                if (!row) return false;
+                return row.getAttribute('data-var-name') === String(varName)
+                    && row.getAttribute('data-path') === path;
+            });
+    },
     getCodeVariableNameElements: (varName, preferredTokenId = null) => {
         if (!varName) return [];
         if (preferredTokenId) {
@@ -983,10 +1007,22 @@ export const ui = {
             .filter((element) => String(element.innerText || '').trim() === String(varName))
             .slice(0, 1);
     },
-    setVariableRelationHighlight: (varName, preferredTokenId = null, enabled = true) => {
+    getCodeIndexElements: (preferredIndexTokenId = null) => {
+        if (!preferredIndexTokenId) return [];
+        const indexEl = document.getElementById(preferredIndexTokenId);
+        if (!indexEl || indexEl.style.display === 'none') return [];
+        return [indexEl];
+    },
+    setVariableRelationHighlight: (varName, preferredTokenId = null, enabled = true, index = null, preferredIndexTokenId = null) => {
         const memoryNames = ui.getMemoryVariableNameElements(varName);
+        const memoryIndexNames = ui.getMemoryArrayIndexElements(varName, index);
         const codeNames = ui.getCodeVariableNameElements(varName, preferredTokenId);
+        const codeIndexNames = ui.getCodeIndexElements(preferredIndexTokenId);
         memoryNames.forEach((element) => {
+            if (enabled) element.classList.add('flow-var-memory');
+            else element.classList.remove('flow-var-memory');
+        });
+        memoryIndexNames.forEach((element) => {
             if (enabled) element.classList.add('flow-var-memory');
             else element.classList.remove('flow-var-memory');
         });
@@ -994,7 +1030,11 @@ export const ui = {
             if (enabled) element.classList.add('flow-var-code');
             else element.classList.remove('flow-var-code');
         });
-        return () => ui.setVariableRelationHighlight(varName, preferredTokenId, false);
+        codeIndexNames.forEach((element) => {
+            if (enabled) element.classList.add('flow-var-code');
+            else element.classList.remove('flow-var-code');
+        });
+        return () => ui.setVariableRelationHighlight(varName, preferredTokenId, false, index, preferredIndexTokenId);
     },
 
     updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null, openDrawer = true) => {
@@ -1032,6 +1072,7 @@ export const ui = {
                 row.id = rowId;
                 row.className = 'memory-cell array-element cell-entry';
                 row.setAttribute('data-path', pathKey);
+                row.setAttribute('data-var-name', variableName);
                 row.style.paddingLeft = `${28 + (depth - 1) * 18}px`;
                 const itemHeapId = (hasValue && Array.isArray(item)) ? ui.getHeapId(item) : null;
                 const itemOwner = itemHeapId ? arrayOwners.get(itemHeapId) : null;
@@ -1041,7 +1082,8 @@ export const ui = {
                     : (Array.isArray(item)
                         ? (itemOwner ? `ref ${itemOwner}` : `Array(${item.length})`)
                         : (item===undefined ? 'empty' : valueToVisualText(item)));
-                row.innerHTML = `<span class="mem-addr"></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${escapeHtml(displayValue)}</span>`;
+                const itemType = getMemoryTypeLabel(item, hasValue);
+                row.innerHTML = `<span class="mem-meta"><span class="mem-addr"></span><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${escapeHtml(displayValue)}</span>`;
                 if(variableName===flashVarName && isTopLevel && flashIndex===idx) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 groupDiv.appendChild(row);
                 if (Array.isArray(item) && !isCircularRef) {
@@ -1074,13 +1116,15 @@ export const ui = {
                     const owner = heapId ? arrayOwners.get(heapId) : null;
                     valStr = (owner && owner !== name) ? `ref ${owner}` : `Array(${v.value.length})`;
                 } else if (v.value && v.value.type && v.value.type.includes('func')) {
-                    valStr = `f(${v.value.params})`;
+                    const paramsDisplay = Array.isArray(v.value.params) ? v.value.params.join(',') : `${v.value.params || ''}`;
+                    valStr = v.functionAlias ? `${v.functionAlias}(${paramsDisplay})` : `f(${paramsDisplay})`;
                 } else {
                     valStr = valueToVisualText(v.value);
                 }
+                const valueType = getMemoryTypeLabel(v.value, true);
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
-                row.innerHTML = `<span class="mem-addr">${v.addr}</span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${escapeHtml(valStr)}</span>`;
+                row.innerHTML = `<span class="mem-meta"><span class="mem-addr">${v.addr}</span><span class="mem-type">${escapeHtml(valueType)}</span></span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${escapeHtml(valStr)}</span>`;
                 row.className = 'memory-cell'; 
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }
@@ -1199,7 +1243,7 @@ export const ui = {
         }
     },
 
-    animateAssignment: async (varName, value, targetTokenId, index = null, varTokenId = null) => {
+    animateAssignment: async (varName, value, targetTokenId, index = null, varTokenId = null, codeIndexTokenId = null) => {
         if (ui.skipMode || ui.isStopping) return;
         await ui.ensureDrawerOpen('memory');
         await ui.wait(220);
@@ -1208,7 +1252,7 @@ export const ui = {
         ui.ensureVisible(memId);
         const memEl = document.getElementById(memId);
         if (!tokenEl || !memEl) return;
-        const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true);
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
                 await ui.flyHelper(value, tokenEl, memEl, false);
@@ -1217,7 +1261,7 @@ export const ui = {
             clearVarHighlight();
         }
     },
-    animateRead: async (varName, value, targetTokenId, index = null) => {
+    animateRead: async (varName, value, targetTokenId, index = null, varTokenId = null, codeIndexTokenId = null) => {
         if (ui.skipMode || ui.isStopping) return;
         await ui.ensureDrawerOpen('memory');
         await ui.wait(220);
@@ -1226,7 +1270,7 @@ export const ui = {
         const memEl = document.getElementById(memId);
         const tokenEl = document.getElementById(targetTokenId);
         if (!tokenEl || !memEl) return;
-        const clearVarHighlight = ui.setVariableRelationHighlight(varName, targetTokenId, true);
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
                 await ui.flyHelper(value, memEl, tokenEl, false);

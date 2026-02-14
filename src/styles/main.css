@@ -563,11 +563,13 @@
         #memory-container > .memory-scope:first-child { margin-top: 15px; }
         .memory-scope { border: 1px solid var(--border); border-radius: 8px; background: var(--mem-cell); position: relative; overflow: clip; }
         .scope-title { padding: 8px 12px; margin: 0; background: var(--mem-header-bg); border-bottom: 1px solid var(--border); font-size: 0.8em; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 20; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-        .memory-cell { display: grid; grid-template-columns: 2.5em max-content minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start; min-height: 36px; background: var(--mem-cell); scroll-margin-top: 100px; }
+        .memory-cell { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start; min-height: 36px; background: var(--mem-cell); scroll-margin-top: 100px; }
         .memory-cell.sticky-var { position: sticky; top: 36px; z-index: 15; background: var(--mem-cell); border-bottom: 1px solid var(--accent); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         .memory-cell.array-element { background-color: var(--mem-array-bg); padding-left: 28px; }
         .memory-cell.array-element .mem-name { color: #64748b; font-weight: normal; font-size: 0.9em; }
+        .mem-meta { display: inline-flex; align-items: center; gap: 6px; min-width: 76px; }
         .mem-addr { color: #5c6370; font-size: 0.75em; font-family: monospace; opacity: 0.7; }
+        .mem-type { color: #7dd3fc; font-size: 0.72em; font-family: monospace; opacity: 0.95; }
         .mem-name { color: var(--code-var); font-weight: bold; font-family: monospace; }
         .mem-val { display: block; width: 100%; max-width: 100%; text-align: left; color: var(--code-string); font-family: monospace; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35; }
         .console-box { flex: 1; background: #000; overflow-y: auto; padding: 10px; font-family: var(--code-font-family); color: #dcdfe4; font-size: 13px; }
