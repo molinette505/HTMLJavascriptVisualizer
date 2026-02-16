@@ -499,12 +499,11 @@
         .dom-tree-class { color: #94a3b8; }
         .dom-tree-attrs { display: inline-flex; gap: 6px; flex-wrap: wrap; }
         .dom-tree-attr {
-            background: rgba(148, 163, 184, 0.15);
             color: #cbd5e1;
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            padding: 1px 6px;
-            border-radius: 999px;
-            font-size: 11px;
+            border: 0;
+            padding: 0;
+            border-radius: 0;
+            font-size: 12px;
         }
         .dom-tree-text { border-style: dashed; }
         .dom-tree-text-label { color: #f59e0b; font-weight: 700; }
@@ -533,7 +532,6 @@
         .dom-tree-node.dom-remove-leave {
             animation: slideOut calc(0.4s * var(--time-scale)) ease-out forwards !important;
         }
-        .dom-tree-attr.dom-attr-highlight,
         .dom-tree-id.dom-attr-highlight,
         .dom-tree-class.dom-attr-highlight {
             background: rgba(250, 204, 21, 0.2);
@@ -542,6 +540,15 @@
             border-radius: 999px;
             padding: 1px 6px;
             box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.22);
+        }
+        .dom-tree-attr.dom-attr-highlight {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px dashed rgba(250, 204, 21, 0.95);
+            color: #fde68a;
+            border-radius: 0;
+            padding: 0 1px;
+            box-shadow: none;
         }
         .dom-insert-target {
             border-style: dashed;
