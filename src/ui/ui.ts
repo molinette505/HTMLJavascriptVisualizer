@@ -825,6 +825,10 @@ export const ui = {
         const insertionTarget = document.createElement('div');
         insertionTarget.className = 'dom-tree-node dom-insert-target dom-insert-space';
         insertionTarget.innerHTML = '<span class="dom-tree-attr">append</span>';
+        const parentIndent = parseFloat(parentEl.style.marginLeft || getComputedStyle(parentEl).marginLeft || '0') || 0;
+        const childIndent = parentIndent + 18;
+        insertionTarget.style.marginLeft = `${childIndent}px`;
+        insertionTarget.style.width = `calc(100% - ${childIndent}px)`;
         parentEl.insertAdjacentElement('afterend', insertionTarget);
         const flowEls = [sourceEl, parentEl].filter(Boolean);
         parentEl.scrollIntoView({ behavior: 'auto', block: 'center' });
