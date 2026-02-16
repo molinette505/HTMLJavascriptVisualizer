@@ -211,6 +211,7 @@ let flowGuideCounter = 1;
 
 const createFlowGuideLine = (sourceEl, destinationEl) => {
     if (!sourceEl || !destinationEl || typeof document === 'undefined') return { stop: () => {} };
+    if (ui && ui.showFlowLine === false) return { stop: () => {} };
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.classList.add('flow-link-line');
@@ -309,6 +310,7 @@ export const ui = {
     heapRefCounter: 1,
     domDocument: null,
     domViewMode: 'tree',
+    showFlowLine: true,
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
     speedIndex: 3, 
@@ -317,6 +319,16 @@ export const ui = {
         ui.speedMultiplier = ui.speeds[ui.speedIndex];
         document.getElementById('speed-display').innerText = ui.speedMultiplier + 'x';
         document.documentElement.style.setProperty('--time-scale', 1 / ui.speedMultiplier);
+    },
+    updateFlowLineControl: () => {
+        const button = document.getElementById('btn-toggle-flow-line');
+        if (!button) return;
+        button.innerText = ui.showFlowLine ? 'ON' : 'OFF';
+        button.classList.toggle('is-on', ui.showFlowLine);
+    },
+    toggleFlowLine: () => {
+        ui.showFlowLine = !ui.showFlowLine;
+        ui.updateFlowLineControl();
     },
 
     toggleDrawer: () => {
@@ -1013,29 +1025,7 @@ export const ui = {
         if (!indexEl || indexEl.style.display === 'none') return [];
         return [indexEl];
     },
-    setVariableRelationHighlight: (varName, preferredTokenId = null, enabled = true, index = null, preferredIndexTokenId = null) => {
-        const memoryNames = ui.getMemoryVariableNameElements(varName);
-        const memoryIndexNames = ui.getMemoryArrayIndexElements(varName, index);
-        const codeNames = ui.getCodeVariableNameElements(varName, preferredTokenId);
-        const codeIndexNames = ui.getCodeIndexElements(preferredIndexTokenId);
-        memoryNames.forEach((element) => {
-            if (enabled) element.classList.add('flow-var-memory');
-            else element.classList.remove('flow-var-memory');
-        });
-        memoryIndexNames.forEach((element) => {
-            if (enabled) element.classList.add('flow-var-memory');
-            else element.classList.remove('flow-var-memory');
-        });
-        codeNames.forEach((element) => {
-            if (enabled) element.classList.add('flow-var-code');
-            else element.classList.remove('flow-var-code');
-        });
-        codeIndexNames.forEach((element) => {
-            if (enabled) element.classList.add('flow-var-code');
-            else element.classList.remove('flow-var-code');
-        });
-        return () => ui.setVariableRelationHighlight(varName, preferredTokenId, false, index, preferredIndexTokenId);
-    },
+    setVariableRelationHighlight: (varName, preferredTokenId = null, enabled = true, index = null, preferredIndexTokenId = null) => (() => {}),
 
     updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null, openDrawer = true) => {
         if(ui.isStopping) return;
@@ -1083,7 +1073,7 @@ export const ui = {
                         ? (itemOwner ? `ref ${itemOwner}` : `Array(${item.length})`)
                         : (item===undefined ? 'empty' : valueToVisualText(item)));
                 const itemType = getMemoryTypeLabel(item, hasValue);
-                row.innerHTML = `<span class="mem-meta"><span class="mem-addr"></span><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${escapeHtml(displayValue)}</span>`;
+                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${escapeHtml(displayValue)}</span>`;
                 if(variableName===flashVarName && isTopLevel && flashIndex===idx) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 groupDiv.appendChild(row);
                 if (Array.isArray(item) && !isCircularRef) {
@@ -1124,7 +1114,7 @@ export const ui = {
                 const valueType = getMemoryTypeLabel(v.value, true);
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
-                row.innerHTML = `<span class="mem-meta"><span class="mem-addr">${v.addr}</span><span class="mem-type">${escapeHtml(valueType)}</span></span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${escapeHtml(valStr)}</span>`;
+                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(valueType)}</span></span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${escapeHtml(valStr)}</span>`;
                 row.className = 'memory-cell'; 
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }

@@ -34,5 +34,6 @@ export const formatValue = (val) => {
         return `${tag}${idPart}${classPart}${attrsPart}`;
     }
     if (typeof val === 'object' && val !== null && (val.type === 'arrow_func' || val.type === 'function_expr')) return `f (${val.params.join(',')})`;
+    if (typeof val === 'object' && val !== null && val.type === 'function_decl_ref') return val.name || 'f()';
     return val;
 };

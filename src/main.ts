@@ -48,6 +48,7 @@ refreshIcons();
 app.initScenarioLoader();
 ui.renderDomPanel();
 ui.switchTab('memory');
+ui.updateFlowLineControl();
 
 const closeDrawerForEditorFocus = () => {
     if (window.innerWidth >= 800) return;

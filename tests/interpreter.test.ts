@@ -236,6 +236,15 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'result')).toBe(12);
   });
 
+  it('supporte function declaration comme argument', async () => {
+    const interpreter = await runProgram(`
+      function doubler(n) { return n * 2; }
+      function appliquer(x, operation) { return operation(x); }
+      let resultat = appliquer(5, doubler);
+    `);
+    expect(getGlobalValue(interpreter, 'resultat')).toBe(10);
+  });
+
   it('execute arrays, member access et methodes', async () => {
     const interpreter = await runProgram(`
       let arr = [1, 2];
