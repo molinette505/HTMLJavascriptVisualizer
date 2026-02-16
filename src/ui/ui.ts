@@ -91,16 +91,12 @@ const valueToVisualText = (value) => {
 };
 
 const getMemoryTypeLabel = (value, hasOwnValue = true) => {
-    if (!hasOwnValue) return 'empty';
-    if (Array.isArray(value)) return 'arr[]';
-    if (isVirtualDomValue(value)) return 'html';
-    if (value && typeof value === 'object' && value.type && String(value.type).includes('func')) return 'f()';
-    if (typeof value === 'function') return 'f()';
-    if (typeof value === 'number') return 'num';
-    if (typeof value === 'boolean') return 'bool';
-    if (typeof value === 'string') return 'string';
-    if (value === undefined) return 'undef';
-    return 'obj';
+    if (!hasOwnValue) return 'undefined';
+    if (Array.isArray(value)) return 'array';
+    if (isVirtualDomValue(value)) return 'dom-node';
+    if (value && typeof value === 'object' && value.type && String(value.type).includes('func')) return 'function';
+    if (typeof value === 'function') return 'function';
+    return typeof value;
 };
 
 const domTreeRefs = new WeakMap();
