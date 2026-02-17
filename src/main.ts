@@ -10,6 +10,8 @@ window.app = app;
 window.ui = ui;
 window.editor = editor;
 window.consoleUI = consoleUI;
+window.loadVisualizerContent = (payload) => app.loadExternalContent(payload);
+window.setVisualizerContent = window.loadVisualizerContent;
 
 // --- KEYBOARD SHORTCUTS ---
 document.getElementById('code-input').addEventListener('keydown', (e) => {
@@ -135,3 +137,19 @@ if (window.visualViewport) {
 }
 window.addEventListener('resize', setAppHeight);
 setAppHeight();
+
+window.addEventListener('message', (event) => {
+    const data = event ? event.data : null;
+    if (!data || typeof data !== 'object') return;
+    if (data.type !== 'visualizer:load-content') return;
+    const payload = Object.prototype.hasOwnProperty.call(data, 'payload') ? data.payload : data;
+    app.loadExternalContent(payload);
+});
+
+if (window.parent && window.parent !== window) {
+    try {
+        window.parent.postMessage({ type: 'visualizer:ready' }, '*');
+    } catch (error) {
+        // noop
+    }
+}

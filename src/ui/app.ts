@@ -15,6 +15,55 @@ const extractScenarioHtml = (rawHtml) => {
     return { code, domHtml };
 };
 
+const setEditorCode = (nextCode) => {
+    const input = document.getElementById('code-input');
+    if (!input) return;
+    input.value = nextCode;
+    editor.history = [nextCode];
+    editor.historyIdx = 0;
+    editor.adjustHeight();
+    editor.refresh();
+};
+
+const normalizeExternalContent = (payload) => {
+    let code = null;
+    let domHtml = null;
+    let label = 'Externe';
+    let clearConsole = true;
+    let run = false;
+
+    if (typeof payload === 'string') {
+        code = payload;
+    } else if (payload && typeof payload === 'object') {
+        if (typeof payload.js === 'string') code = payload.js;
+        else if (typeof payload.code === 'string') code = payload.code;
+
+        if (typeof payload.html === 'string') {
+            const parsed = extractScenarioHtml(payload.html);
+            domHtml = parsed.domHtml;
+            if (code === null && parsed.code) code = parsed.code;
+        } else if (typeof payload.domHtml === 'string') {
+            domHtml = payload.domHtml || '<body></body>';
+        }
+
+        if (typeof payload.label === 'string' && payload.label.trim()) label = payload.label.trim();
+        else if (typeof payload.source === 'string' && payload.source.trim()) label = payload.source.trim();
+        else if (typeof payload.title === 'string' && payload.title.trim()) label = payload.title.trim();
+
+        if (typeof payload.clearConsole === 'boolean') clearConsole = payload.clearConsole;
+        if (typeof payload.run === 'boolean') run = payload.run;
+    }
+
+    return {
+        code,
+        domHtml,
+        label,
+        clearConsole,
+        run,
+        hasContent: code !== null || domHtml !== null
+    };
+};
+
 export const app = {
     interpreter: null,
     isRunning: false,
@@ -156,9 +205,44 @@ export const app = {
         }
         app.applyScenario(scenario);
     },
+
+    loadExternalContent: (payload) => {
+        const normalized = normalizeExternalContent(payload);
+        if (!normalized.hasContent) {
+            ui.log('Chargement externe ignore: aucun JS/HTML fourni.', 'warn');
+            return false;
+        }
+
+        const apply = () => {
+            if (normalized.domHtml !== null) {
+                app.currentDomHtml = normalized.domHtml || '<body></body>';
+                ui.updateDom(createVirtualDocument(app.currentDomHtml));
+            }
+            if (normalized.code !== null) setEditorCode(String(normalized.code));
+            if (normalized.clearConsole) consoleUI.clear();
+            ui.log(`Contenu charge (${normalized.label}).`, 'info');
+            if (normalized.run) app.start();
+        };
+
+        if (app.pendingScenarioLoadTimer) {
+            clearTimeout(app.pendingScenarioLoadTimer);
+            app.pendingScenarioLoadTimer = null;
+        }
+
+        if (app.isRunning) {
+            app.stop();
+            app.pendingScenarioLoadTimer = setTimeout(() => {
+                apply();
+                app.pendingScenarioLoadTimer = null;
+            }, 90);
+            return true;
+        }
+
+        apply();
+        return true;
+    },
     
     triggerEvent: () => {
         if (app.interpreter) app.interpreter.invokeEvent(app.eventFunctionName);
     }
 };
-
