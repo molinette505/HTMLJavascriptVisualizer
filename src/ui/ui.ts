@@ -90,6 +90,34 @@ const valueToVisualText = (value) => {
     return JSON.stringify(formatValue(value));
 };
 
+const valueToCodePreviewText = (value, initialized = true, functionAlias = null) => {
+    if (!initialized) return 'uninitialized';
+    if (value && typeof value === 'object') {
+        if (value.type === 'function_decl_ref') return value.name || 'function';
+        if (String(value.type || '').includes('func')) {
+            const paramsDisplay = Array.isArray(value.params) ? value.params.join(',') : `${value.params || ''}`;
+            return functionAlias ? `${functionAlias}(${paramsDisplay})` : `f(${paramsDisplay})`;
+        }
+    }
+    if (value === undefined) return 'undefined';
+    if (Array.isArray(value)) return `[${value.map((entry) => JSON.stringify(entry)).join(', ')}]`;
+    if (isVirtualDomValue(value)) return String(formatValue(value));
+    if (typeof value === 'string') return `"${value}"`;
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(formatValue(value));
+        } catch (error) {
+            return String(formatValue(value));
+        }
+    }
+    return String(formatValue(value));
+};
+
+const getCodePreviewTypeLabel = (snapshot) => {
+    if (!snapshot || snapshot.initialized === false) return 'uninitialized';
+    return getMemoryTypeLabel(snapshot.value, true);
+};
+
 const getMemoryTypeLabel = (value, hasOwnValue = true) => {
     if (!hasOwnValue) return 'undefined';
     if (Array.isArray(value)) return 'array';
@@ -306,10 +334,14 @@ export const ui = {
     currentWaitResolver: null,
     heapRefs: new WeakMap(),
     heapRefCounter: 1,
+    currentMemoryVarSnapshot: new Map(),
     memoryDomPreviewRefs: new Map(),
     memoryDomTooltipEl: null,
     memoryDomTooltipAnchorEl: null,
     memoryDomTooltipBound: false,
+    codeValueTooltipEl: null,
+    codeValueTooltipAnchorEl: null,
+    codeValueTooltipBound: false,
     domDocument: null,
     domViewMode: 'tree',
     showFlowLine: true,
@@ -331,6 +363,111 @@ export const ui = {
     toggleFlowLine: () => {
         ui.showFlowLine = !ui.showFlowLine;
         ui.updateFlowLineControl();
+    },
+    initCodeValueTooltip: () => {
+        if (ui.codeValueTooltipBound) return;
+        const display = document.getElementById('code-display');
+        if (!display) return;
+        ui.codeValueTooltipBound = true;
+        const hoverSupported = window.matchMedia ? window.matchMedia('(hover: hover)').matches : true;
+        const getVarData = (target) => {
+            if (!target || !target.closest) return null;
+            const tokenEl = target.closest('span[data-code-var]');
+            if (!tokenEl) return null;
+            const varName = tokenEl.dataset.codeVar;
+            if (!varName) return null;
+            const snapshot = ui.currentMemoryVarSnapshot.get(varName);
+            if (!snapshot) return null;
+            return { tokenEl, varName, snapshot };
+        };
+        if (hoverSupported) {
+            display.addEventListener('mouseover', (event) => {
+                const data = getVarData(event.target);
+                if (!data) return;
+                ui.showCodeValueTooltip(data.varName, data.snapshot, data.tokenEl);
+            });
+            display.addEventListener('mouseout', (event) => {
+                const fromEl = event.target && event.target.closest ? event.target.closest('span[data-code-var]') : null;
+                if (!fromEl) return;
+                const toEl = event.relatedTarget && event.relatedTarget.closest ? event.relatedTarget.closest('span[data-code-var]') : null;
+                if (toEl === fromEl) return;
+                ui.hideCodeValueTooltip();
+            });
+        }
+        display.addEventListener('click', (event) => {
+            const data = getVarData(event.target);
+            if (!data) return;
+            if (ui.codeValueTooltipEl && ui.codeValueTooltipAnchorEl === data.tokenEl) {
+                ui.hideCodeValueTooltip();
+                return;
+            }
+            ui.showCodeValueTooltip(data.varName, data.snapshot, data.tokenEl);
+        });
+        document.addEventListener('pointerdown', (event) => {
+            const target = event.target;
+            if (!target || !target.closest) {
+                ui.hideCodeValueTooltip();
+                return;
+            }
+            if (target.closest('.code-value-tooltip')) return;
+            if (target.closest('span[data-code-var]')) return;
+            ui.hideCodeValueTooltip();
+        });
+        const codeWrapper = document.getElementById('code-wrapper');
+        if (codeWrapper) {
+            codeWrapper.addEventListener('scroll', () => {
+                if (!ui.codeValueTooltipEl || !ui.codeValueTooltipAnchorEl) return;
+                ui.positionCodeValueTooltip(ui.codeValueTooltipAnchorEl);
+            }, { passive: true });
+        }
+        window.addEventListener('resize', () => {
+            if (!ui.codeValueTooltipEl || !ui.codeValueTooltipAnchorEl) return;
+            ui.positionCodeValueTooltip(ui.codeValueTooltipAnchorEl);
+        });
+    },
+    showCodeValueTooltip: (varName, snapshot, anchorEl) => {
+        if (!varName || !snapshot || !anchorEl || ui.isStopping) return;
+        ui.hideCodeValueTooltip();
+        const tooltip = document.createElement('div');
+        const typeLabel = getCodePreviewTypeLabel(snapshot);
+        const isDomPreview = typeLabel === 'dom-node' && isVirtualDomValue(snapshot.value);
+        tooltip.className = `code-value-tooltip${isDomPreview ? ' is-dom' : ''}`;
+        let valueMarkup = '';
+        if (isDomPreview) {
+            const previewNode = (snapshot.value.__domType === 'document' && snapshot.value.body) ? snapshot.value.body : snapshot.value;
+            valueMarkup = `<div class="code-value-tooltip-dom">${buildDomTreeMarkup(previewNode, 0, false) || '<div class="dom-tree-empty">Apercu indisponible.</div>'}</div>`;
+        } else {
+            const valueText = valueToCodePreviewText(snapshot.value, snapshot.initialized, snapshot.functionAlias || null);
+            valueMarkup = `<div class="code-value-tooltip-value">${escapeHtml(valueText)}</div>`;
+        }
+        tooltip.innerHTML = `<div class="code-value-tooltip-head"><div class="code-value-tooltip-name">${escapeHtml(varName)}</div><div class="code-value-tooltip-type">${escapeHtml(typeLabel)}</div></div>${valueMarkup}`;
+        document.body.appendChild(tooltip);
+        ui.codeValueTooltipEl = tooltip;
+        ui.codeValueTooltipAnchorEl = anchorEl;
+        ui.positionCodeValueTooltip(anchorEl);
+    },
+    positionCodeValueTooltip: (anchorEl) => {
+        const tooltip = ui.codeValueTooltipEl;
+        if (!tooltip || !anchorEl || !anchorEl.getBoundingClientRect) return;
+        const margin = 12;
+        const anchorRect = anchorEl.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+        let left = anchorRect.left + (anchorRect.width - tooltipRect.width) / 2;
+        let top = anchorRect.bottom + 8;
+        if (left < margin) left = margin;
+        if (left + tooltipRect.width > viewportWidth - margin) left = viewportWidth - tooltipRect.width - margin;
+        if (top + tooltipRect.height > viewportHeight - margin) top = anchorRect.top - tooltipRect.height - 8;
+        if (top < margin) top = margin;
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+    },
+    hideCodeValueTooltip: () => {
+        if (!ui.codeValueTooltipEl) return;
+        ui.codeValueTooltipEl.remove();
+        ui.codeValueTooltipEl = null;
+        ui.codeValueTooltipAnchorEl = null;
     },
     initMemoryDomTooltip: () => {
         if (ui.memoryDomTooltipBound) return;
@@ -559,6 +696,8 @@ export const ui = {
     },
 
     stopAnimations: () => {
+        ui.hideMemoryDomTooltip();
+        ui.hideCodeValueTooltip();
         document.querySelectorAll('.flying-element').forEach(el => el.remove());
         document.querySelectorAll('.flying-dom-node').forEach(el => el.remove());
         document.querySelectorAll('.flow-link-line').forEach(el => el.remove());
@@ -583,10 +722,12 @@ export const ui = {
             } else if (t.type === TokenType.STRING && t.value.startsWith('`') && t.value.endsWith('`')) {
                 html += `<span id="${t.id}" class="${className}">${renderTemplateStringValue(t.value)}</span>`;
             } else {
-                html += `<span id="${t.id}" class="${className}">${escapeHtml(t.value)}</span>`;
+                const varAttr = t.type === TokenType.IDENTIFIER ? ` data-code-var="${escapeHtml(t.value)}"` : '';
+                html += `<span id="${t.id}" class="${className}"${varAttr}>${escapeHtml(t.value)}</span>`;
             }
         });
         display.innerHTML = html;
+        ui.initCodeValueTooltip();
         ui.modifiedTokens.clear(); ui.lockedTokens.clear();
     },
     resetDisplay: () => { 
@@ -597,6 +738,9 @@ export const ui = {
         document.getElementById('highlight-layer').innerHTML = ''; 
         document.getElementById('memory-container').innerHTML = ''; 
         document.getElementById('console-output').innerHTML = '';
+        ui.hideMemoryDomTooltip();
+        ui.hideCodeValueTooltip();
+        ui.currentMemoryVarSnapshot.clear();
         ui.modifiedTokens.clear(); 
         ui.lockedTokens.clear(); 
         ui.setStepButtonState(false); 
@@ -630,7 +774,10 @@ export const ui = {
         document.getElementById('btn-next').disabled = !running; 
         document.getElementById('btn-skip').disabled = !running; 
         document.getElementById('code-input').readOnly = running; 
+        document.getElementById('code-input').style.pointerEvents = running ? 'none' : 'auto';
+        document.getElementById('code-display').style.pointerEvents = running ? 'auto' : 'none';
         if(!running) document.getElementById('highlight-layer').innerHTML = ''; 
+        if(!running) ui.hideCodeValueTooltip();
     },
     setStepButtonState: (enabled) => { 
         document.getElementById('btn-next').disabled = !enabled; 
@@ -1132,7 +1279,9 @@ export const ui = {
         if(ui.isStopping) return;
         ui.initMemoryDomTooltip();
         ui.hideMemoryDomTooltip();
+        ui.hideCodeValueTooltip();
         ui.memoryDomPreviewRefs.clear();
+        ui.currentMemoryVarSnapshot.clear();
         if(flashVarName && openDrawer) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
@@ -1205,10 +1354,17 @@ export const ui = {
 
             Object.keys(scope.variables).filter((name) => name !== 'document').forEach(name => {
                 const v = scope.variables[name]; const groupId = `mem-group-${scope.id}-${name}`; let groupDiv = document.getElementById(groupId);
+                ui.currentMemoryVarSnapshot.set(name, {
+                    value: v.value,
+                    initialized: v.initialized !== false,
+                    functionAlias: v.functionAlias || null
+                });
                 if (!groupDiv) { groupDiv = document.createElement('div'); groupDiv.id = groupId; groupDiv.className = 'memory-group'; groupDiv.setAttribute('data-var-name', name); groupDiv.classList.add('cell-entry'); varsContainer.appendChild(groupDiv); }
                 const shouldFlash = (name === flashVarName && flashType !== 'none' && flashIndex === null);
                 let valStr;
-                if (Array.isArray(v.value)) {
+                if (v.initialized === false) {
+                    valStr = 'uninitialized';
+                } else if (Array.isArray(v.value)) {
                     const heapId = ui.getHeapId(v.value);
                     const owner = heapId ? arrayOwners.get(heapId) : null;
                     valStr = (owner && owner !== name) ? `ref ${owner}` : `Array(${v.value.length})`;
@@ -1218,7 +1374,7 @@ export const ui = {
                 } else {
                     valStr = valueToVisualText(v.value);
                 }
-                const valueType = getMemoryTypeLabel(v.value, true);
+                const valueType = (v.initialized === false) ? 'uninitialized' : getMemoryTypeLabel(v.value, true);
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
                 const topValueId = Array.isArray(v.value) ? `mem-header-${name}` : `mem-val-${name}`;

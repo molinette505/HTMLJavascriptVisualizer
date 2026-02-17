@@ -245,6 +245,14 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'resultat')).toBe(10);
   });
 
+  it('hoiste les declarations de fonction (appel avant declaration)', async () => {
+    const interpreter = await runProgram(`
+      let resultat = saluer();
+      function saluer() { return "ok"; }
+    `);
+    expect(getGlobalValue(interpreter, 'resultat')).toBe('ok');
+  });
+
   it('execute arrays, member access et methodes', async () => {
     const interpreter = await runProgram(`
       let arr = [1, 2];
@@ -545,6 +553,19 @@ describe('interpreter - coverage des noeuds', () => {
     `);
     const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
     expect(messages.some((message: string) => message.includes("valeur undefined"))).toBe(true);
+    expect(messages.some((message: string) => message.includes('Detail technique'))).toBe(true);
+  });
+
+  it('signale une erreur claire pour expression de fonction avant initialisation', async () => {
+    const ui = createMockUi() as any;
+    ui.log = vi.fn();
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      direAuRevoir();
+      const direAuRevoir = function() { return "bye"; };
+    `);
+    const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
+    expect(messages.some((message: string) => message.includes('avant son initialisation'))).toBe(true);
     expect(messages.some((message: string) => message.includes('Detail technique'))).toBe(true);
   });
 

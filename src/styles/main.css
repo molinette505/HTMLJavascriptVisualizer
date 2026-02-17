@@ -524,6 +524,58 @@
         .memory-dom-tooltip .dom-tree-node {
             margin: 4px 0;
         }
+        .code-value-tooltip {
+            position: fixed;
+            z-index: 12130;
+            pointer-events: none;
+            min-width: 120px;
+            max-width: min(420px, 72vw);
+            background: #0c1527;
+            border: 1px solid rgba(96, 165, 250, 0.6);
+            border-radius: 8px;
+            padding: 8px 10px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.55);
+        }
+        .code-value-tooltip.is-dom {
+            width: min(520px, 72vw);
+            max-height: 46vh;
+            overflow: auto;
+        }
+        .code-value-tooltip-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 3px;
+        }
+        .code-value-tooltip-name {
+            color: #93c5fd;
+            font-family: var(--code-font-family);
+            font-size: 11px;
+            opacity: 0.92;
+        }
+        .code-value-tooltip-type {
+            color: #dbeafe;
+            border: 1px solid rgba(96, 165, 250, 0.55);
+            background: rgba(30, 64, 175, 0.26);
+            border-radius: 999px;
+            padding: 1px 7px;
+            font-family: var(--code-font-family);
+            font-size: 10px;
+            line-height: 1.5;
+            white-space: nowrap;
+            text-transform: lowercase;
+        }
+        .code-value-tooltip-value {
+            color: #e2e8f0;
+            font-family: var(--code-font-family);
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .code-value-tooltip-dom .dom-tree-node {
+            margin: 4px 0;
+        }
         .dom-tree-node.dom-highlight {
             border-color: var(--accent);
             box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);

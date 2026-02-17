@@ -115,7 +115,41 @@ export class Interpreter {
     async nextStep() { if (this.resolveNext) { const r = this.resolveNext; this.resolveNext = null; r(); } }
     stop() { this.shouldStop = true; if (this.resolveNext) this.resolveNext(); }
     async pause(line) { if (this.shouldStop) throw new Error("STOP"); this.ui.skipMode = false; this.ui.setStepButtonState(false); this.ui.resetVisuals(); const activeLines = [...this.callStack, line]; this.ui.highlightLines(activeLines); await this.ui.updateMemory(this.scopeStack); this.ui.setStepButtonState(true); await new Promise(r => { this.resolveNext = r; }); this.ui.setStepButtonState(false); if (this.shouldStop) throw new Error("STOP"); }
-    async executeBlock(stmts) { for (const s of stmts) { const res = await this.execute(s); if (res === 'BREAK') return 'BREAK'; if (res && res.__isReturn) return res; } }
+    hoistVarDeclaration(node) {
+        if (!node || !(node instanceof VarDecl)) return;
+        if (Object.prototype.hasOwnProperty.call(this.currentScope.variables, node.name)) {
+            const existing = this.currentScope.variables[node.name];
+            const allowVarRedeclare = existing && existing.kind === 'var' && node.kind === 'var';
+            if (allowVarRedeclare) return;
+            throw new Error(`Variable ${node.name} déjà déclarée`);
+        }
+        this.currentScope.define(node.name, node.kind);
+        if (node.kind === 'var') this.currentScope.initialize(node.name, undefined);
+    }
+    hoistDeclarations(stmts) {
+        if (!Array.isArray(stmts)) return;
+        for (const statement of stmts) {
+            if (statement instanceof FunctionDecl) {
+                this.functions[statement.name] = statement;
+                continue;
+            }
+            if (statement instanceof VarDecl) {
+                this.hoistVarDeclaration(statement);
+                continue;
+            }
+            if (statement instanceof MultiVarDecl) {
+                for (const declaration of statement.decls) this.hoistVarDeclaration(declaration);
+            }
+        }
+    }
+    async executeBlock(stmts) {
+        this.hoistDeclarations(stmts);
+        for (const s of stmts) {
+            const res = await this.execute(s);
+            if (res === 'BREAK') return 'BREAK';
+            if (res && res.__isReturn) return res;
+        }
+    }
     formatRuntimeError(error) {
         const raw = (error && error.message) ? String(error.message) : String(error);
         let friendly = raw;
@@ -125,6 +159,8 @@ export class Interpreter {
         if (constant) friendly = `Impossible de modifier la constante "${constant[1]}".`;
         const undefinedVar = raw.match(/^Variable (.+) non définie$/);
         if (undefinedVar) friendly = `Variable "${undefinedVar[1]}" non definie (undefined).`;
+        const tdzVar = raw.match(/^Cannot access '(.+)' before initialization$/);
+        if (tdzVar) friendly = `Impossible d'acceder a "${tdzVar[1]}" avant son initialisation.`;
         if (raw.includes('Cannot read properties of undefined')) friendly = "Impossible de lire une propriete d'une valeur undefined.";
         if (raw.includes('Cannot set properties of undefined')) friendly = "Impossible d'ecrire une propriete sur une valeur undefined.";
         if (raw.includes('is not a function')) friendly = "Tentative d'appel d'une valeur qui n'est pas une fonction.";
@@ -202,9 +238,12 @@ export class Interpreter {
         if (node instanceof MultiVarDecl) { for (const decl of node.decls) { await this.execute(decl); } return; }
         if (node instanceof VarDecl) {
             await this.pause(node.line);
-            this.currentScope.define(node.name, node.kind);
-            await this.ui.updateMemory(this.scopeStack, node.name, 'declare');
-            await this.ui.wait(600);
+            const hasOwnBinding = Object.prototype.hasOwnProperty.call(this.currentScope.variables, node.name);
+            if (!hasOwnBinding) {
+                this.currentScope.define(node.name, node.kind);
+                await this.ui.updateMemory(this.scopeStack, node.name, 'declare');
+                await this.ui.wait(600);
+            }
             const varTokenId = this.getIdentifierTokenId(node.domIds, node.name);
             if (node.init) {
                 if (node.init instanceof ArrayLiteral) {
@@ -238,6 +277,9 @@ export class Interpreter {
                     await this.ui.animateAssignment(node.name, val, this.getExpressionDisplayTokenId(node.init), null, varTokenId);
                     await this.ui.updateMemory(this.scopeStack, node.name, 'write');
                 }
+            } else if (hasOwnBinding && this.currentScope.variables[node.name].initialized === false) {
+                this.currentScope.initialize(node.name, undefined);
+                await this.ui.updateMemory(this.scopeStack, node.name, 'write');
             }
         }
         else if (node instanceof Assignment) {
@@ -633,7 +675,9 @@ export class Interpreter {
             try {
                 variable = this.currentScope.get(node.name);
             } catch (error) {
-                if (this.functions[node.name]) {
+                const rawMessage = (error && error.message) ? String(error.message) : '';
+                const isUndefinedBinding = rawMessage.includes('non définie');
+                if (isUndefinedBinding && this.functions[node.name]) {
                     return {
                         type: 'function_decl_ref',
                         name: node.name,
@@ -1055,7 +1099,12 @@ export class Interpreter {
             if (node.callee instanceof Identifier) {
                 funcName = node.callee.name;
                 let val = null;
-                try { val = this.currentScope.get(node.callee.name); } catch(e) {}
+                try {
+                    val = this.currentScope.get(node.callee.name);
+                } catch(e) {
+                    const rawMessage = (e && e.message) ? String(e.message) : '';
+                    if (!rawMessage.includes('non définie')) throw e;
+                }
                 if (val && val.value && (val.value.type === 'arrow_func' || val.value.type === 'function_expr' || val.value.type === 'function_decl_ref')) {
                     if (val.value.type === 'function_decl_ref') {
                         funcNode = val.value.node;
