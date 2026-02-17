@@ -45,6 +45,7 @@ export class Interpreter {
         this.resolveNext = null;
         this.initialDomHtml = options.domHtml || '<body></body>';
         this.domDocument = createVirtualDocument(this.initialDomHtml);
+        this.lastPausedLine = 0;
     }
 
     async start(code) { 
@@ -57,6 +58,7 @@ export class Interpreter {
         this.globalScope.define('document', 'const');
         this.globalScope.initialize('document', this.domDocument);
         this.scopeStack = [this.globalScope]; 
+        this.lastPausedLine = 0;
         if (typeof this.ui.updateDom === 'function') this.ui.updateDom(this.domDocument);
         await this.ui.updateMemory(this.scopeStack); 
         try { 
@@ -74,17 +76,18 @@ export class Interpreter {
             this.ui.setEventMode(true);
         } catch (e) { 
             if (e.message !== "STOP") { 
-                this.logRuntimeError(e, "Erreur");
+                await this.logRuntimeError(e, "Erreur");
             } else { 
                 this.ui.log("--- Arrêt ---", "info"); 
             } 
             this.ui.setRunningState(false); 
-            this.ui.resetDisplay(); 
+            this.ui.resetDisplay({ keepConsole: true }); 
         }
     }
     
     async invokeEvent(funcName) {
         if (this.shouldStop) return;
+        this.callStack = [];
         
         // Désactiver les contrôles
         document.getElementById('btn-trigger').disabled = true;
@@ -100,7 +103,11 @@ export class Interpreter {
             this.ui.log(`> Événement: ${funcName}()`, "info");
             await this.evaluate(callNode);
         } catch (e) {
-            this.logRuntimeError(e, "Erreur evenement");
+            await this.logRuntimeError(e, "Erreur evenement");
+            this.stop();
+            this.ui.setRunningState(false);
+            this.ui.setEventMode(false);
+            this.ui.resetDisplay({ keepConsole: true });
         } finally {
             this.ui.highlightLines([]); 
             this.ui.resetVisuals();
@@ -114,7 +121,40 @@ export class Interpreter {
 
     async nextStep() { if (this.resolveNext) { const r = this.resolveNext; this.resolveNext = null; r(); } }
     stop() { this.shouldStop = true; if (this.resolveNext) this.resolveNext(); }
-    async pause(line) { if (this.shouldStop) throw new Error("STOP"); this.ui.skipMode = false; this.ui.setStepButtonState(false); this.ui.resetVisuals(); const activeLines = [...this.callStack, line]; this.ui.highlightLines(activeLines); await this.ui.updateMemory(this.scopeStack); this.ui.setStepButtonState(true); await new Promise(r => { this.resolveNext = r; }); this.ui.setStepButtonState(false); if (this.shouldStop) throw new Error("STOP"); }
+    async pause(line) {
+        if (this.shouldStop) throw new Error("STOP");
+        this.lastPausedLine = line;
+        this.ui.skipMode = false;
+        this.ui.setStepButtonState(false);
+        this.ui.resetVisuals();
+        const activeLines = [...this.callStack, line];
+        this.ui.highlightLines(activeLines);
+        await this.ui.updateMemory(this.scopeStack);
+        this.ui.setStepButtonState(true);
+        await new Promise(r => { this.resolveNext = r; });
+        this.ui.setStepButtonState(false);
+        if (this.shouldStop) throw new Error("STOP");
+    }
+    buildPedagogicalStack(lineHint = this.lastPausedLine) {
+        const currentLine = Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : null;
+        const functionScopes = this.scopeStack
+            .filter((scope) => scope && typeof scope.name === 'string')
+            .filter((scope) => scope.name !== 'Global')
+            .filter((scope) => !scope.name.startsWith('Block'));
+        const frames = [];
+        for (let i = functionScopes.length - 1; i >= 0; i--) {
+            const scope = functionScopes[i];
+            const callLine = Number.isFinite(this.callStack[i]) && this.callStack[i] > 0 ? this.callStack[i] : null;
+            const line = (i === functionScopes.length - 1 ? currentLine : callLine) || callLine || currentLine;
+            frames.push(line ? `${scope.name} (ligne ${line})` : `${scope.name}`);
+        }
+        if (frames.length === 0) {
+            frames.push(currentLine ? `global (ligne ${currentLine})` : 'global');
+        } else if (currentLine) {
+            frames.push(`global (ligne ${currentLine})`);
+        }
+        return frames;
+    }
     hoistVarDeclaration(node) {
         if (!node || !(node instanceof VarDecl)) return;
         if (Object.prototype.hasOwnProperty.call(this.currentScope.variables, node.name)) {
@@ -151,25 +191,74 @@ export class Interpreter {
         }
     }
     formatRuntimeError(error) {
+        let name = (error && error.name) ? String(error.name) : 'Error';
         const raw = (error && error.message) ? String(error.message) : String(error);
+        const stack = (error && error.stack) ? String(error.stack) : '';
+        const pedagogicalStack = (error && Array.isArray(error.__pedagogicalStack) && error.__pedagogicalStack.length > 0)
+            ? error.__pedagogicalStack.map((entry) => String(entry))
+            : this.buildPedagogicalStack(this.lastPausedLine);
         let friendly = raw;
         const declared = raw.match(/^Variable (.+) déjà déclarée$/);
-        if (declared) friendly = `Variable "${declared[1]}" deja declaree dans ce scope.`;
+        if (declared) {
+            name = 'SyntaxError';
+            friendly = `Variable "${declared[1]}" deja declaree dans ce scope.`;
+        }
         const constant = raw.match(/^Assignation à une constante (.+)$/);
-        if (constant) friendly = `Impossible de modifier la constante "${constant[1]}".`;
+        if (constant) {
+            name = 'TypeError';
+            friendly = `Impossible de modifier la constante "${constant[1]}".`;
+        }
         const undefinedVar = raw.match(/^Variable (.+) non définie$/);
-        if (undefinedVar) friendly = `Variable "${undefinedVar[1]}" non definie (undefined).`;
+        if (undefinedVar) {
+            name = 'ReferenceError';
+            friendly = `${undefinedVar[1]} is not defined.`;
+        }
         const tdzVar = raw.match(/^Cannot access '(.+)' before initialization$/);
-        if (tdzVar) friendly = `Impossible d'acceder a "${tdzVar[1]}" avant son initialisation.`;
-        if (raw.includes('Cannot read properties of undefined')) friendly = "Impossible de lire une propriete d'une valeur undefined.";
-        if (raw.includes('Cannot set properties of undefined')) friendly = "Impossible d'ecrire une propriete sur une valeur undefined.";
-        if (raw.includes('is not a function')) friendly = "Tentative d'appel d'une valeur qui n'est pas une fonction.";
+        if (tdzVar) {
+            name = 'ReferenceError';
+            friendly = `Cannot access '${tdzVar[1]}' before initialization.`;
+        }
+        const unknownFn = raw.match(/^Fonction (.+) inconnue$/);
+        if (unknownFn) {
+            name = 'ReferenceError';
+            friendly = `${unknownFn[1]} is not defined.`;
+        }
+        if (raw.includes('Cannot read properties of undefined')) {
+            name = 'TypeError';
+            friendly = "Impossible de lire une propriete d'une valeur undefined.";
+        }
+        if (raw.includes('Cannot set properties of undefined')) {
+            name = 'TypeError';
+            friendly = "Impossible d'ecrire une propriete sur une valeur undefined.";
+        }
+        if (raw.includes('is not a function')) {
+            name = 'TypeError';
+            friendly = "Tentative d'appel d'une valeur qui n'est pas une fonction.";
+        }
         if (raw.includes('removeChild: noeud introuvable')) friendly = "removeChild: le noeud n'est pas un enfant direct ou descendant du parent cible.";
-        if (raw.startsWith('Attendu:')) friendly = `Erreur de syntaxe: ${raw}`;
-        return { raw, friendly };
+        if (raw.startsWith('Attendu:')) {
+            name = 'SyntaxError';
+            friendly = `Erreur de syntaxe: ${raw}`;
+        }
+        if (raw === 'Unexpected token' || raw === 'Invalid assignment target' || raw.includes('Syntaxe de fonction fléchée invalide')) {
+            name = 'SyntaxError';
+        }
+        return { name, raw, friendly, stack, pedagogicalStack };
     }
-    logRuntimeError(error, prefix = "Erreur") {
-        const { raw, friendly } = this.formatRuntimeError(error);
+    async logRuntimeError(error, prefix = "Erreur") {
+        const { name, raw, friendly, stack, pedagogicalStack } = this.formatRuntimeError(error);
+        if (typeof this.ui.renderError === 'function') {
+            await this.ui.renderError({
+                prefix,
+                name,
+                message: friendly,
+                technicalMessage: raw,
+                stack,
+                pedagogicalStack,
+                errorObject: error
+            });
+            return;
+        }
         this.ui.log(`${prefix}: ${friendly}`, "error");
         if (friendly !== raw) this.ui.log(`Detail technique: ${raw}`, "error");
     }
@@ -1071,6 +1160,13 @@ export class Interpreter {
                         return result;
                     }
                 }
+                const unresolvedMethod = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
+                if (obj === null || obj === undefined) {
+                    throw new TypeError(`Cannot read properties of ${obj} (reading '${unresolvedMethod}')`);
+                }
+                if (typeof obj[unresolvedMethod] !== 'function') {
+                    throw new TypeError(`${unresolvedMethod} is not a function`);
+                }
             }
             if (node.callee instanceof Identifier && node.callee.name === 'console.log') { 
                 await this.ui.highlightLines([node.line]); // Redundant highlight fix
@@ -1135,70 +1231,83 @@ export class Interpreter {
                 const displayFuncName = calleeDisplayName || funcName;
                 const fnScope = new Scope(`${displayFuncName}(${paramNames.join(', ')})`, closureScope, this.currentScope);
                 this.scopeStack.push(fnScope);
-                for (let i=0; i<paramNames.length; i++) {
-                    const pName = paramNames[i];
-                    const argNode = node.args[i];
-                    const argValue = argValues[i];
-                    const isFunctionIdentifierArg = (argNode instanceof Identifier)
-                        && argValue
-                        && (argValue.type === 'arrow_func' || argValue.type === 'function_expr' || argValue.type === 'function_decl_ref');
-                    const argVisualValue = isFunctionIdentifierArg ? argNode.name : argValue;
-                    if (argNode && paramIds[i]) {
-                        await this.ui.animateParamPass(argVisualValue, argNode.domIds[0], paramIds[i]);
-                    }
-                    fnScope.define(pName, 'let');
-                    fnScope.initialize(pName, argValue);
-                    if (paramIds[i]) {
-                        const aliasName = isFunctionIdentifierArg ? argNode.name : null;
-                        this.setVariableFunctionAlias(pName, aliasName, fnScope);
-                        if (isFunctionIdentifierArg) this.ui.setRawTokenText(paramIds[i], argNode.name, false);
-                        else this.ui.replaceTokenText(paramIds[i], argValue, false);
-                    } else {
-                        this.setVariableFunctionAlias(pName, null, fnScope);
-                    }
-                    await this.ui.updateMemory(this.scopeStack, pName, 'declare');
-                }
-                await this.ui.wait(600);
                 const prevScope = this.currentScope;
-                this.currentScope = fnScope;
-                await this.ui.updateMemory(this.scopeStack);
-                for (let i=0; i<paramIds.length; i++) {
-                    if (paramIds[i]) this.ui.resetTokenText(paramIds[i]);
-                }
-                this.ui.lockTokens(node.domIds || []);
-                this.callStack.push(node.line);
-                let result = undefined;
-                let returnSourceId = null;
-                const body = funcNode.body;
-                if (body instanceof BlockStmt) {
-                    for(const stmt of body.body) {
-                        if (stmt instanceof ReturnStmt) {
-                            await this.pause(stmt.line);
-                            result = stmt.argument ? await this.evaluate(stmt.argument) : undefined;
-                            returnSourceId = (stmt.argument && stmt.argument.domIds.length > 0) ? stmt.argument.domIds[0] : stmt.domIds[0];
-                            break;
+                let callFramePushed = false;
+                let tokensLocked = false;
+                try {
+                    for (let i=0; i<paramNames.length; i++) {
+                        const pName = paramNames[i];
+                        const argNode = node.args[i];
+                        const argValue = argValues[i];
+                        const isFunctionIdentifierArg = (argNode instanceof Identifier)
+                            && argValue
+                            && (argValue.type === 'arrow_func' || argValue.type === 'function_expr' || argValue.type === 'function_decl_ref');
+                        const argVisualValue = isFunctionIdentifierArg ? argNode.name : argValue;
+                        if (argNode && paramIds[i]) {
+                            await this.ui.animateParamPass(argVisualValue, argNode.domIds[0], paramIds[i]);
                         }
-                        await this.execute(stmt);
+                        fnScope.define(pName, 'let');
+                        fnScope.initialize(pName, argValue);
+                        if (paramIds[i]) {
+                            const aliasName = isFunctionIdentifierArg ? argNode.name : null;
+                            this.setVariableFunctionAlias(pName, aliasName, fnScope);
+                            if (isFunctionIdentifierArg) this.ui.setRawTokenText(paramIds[i], argNode.name, false);
+                            else this.ui.replaceTokenText(paramIds[i], argValue, false);
+                        } else {
+                            this.setVariableFunctionAlias(pName, null, fnScope);
+                        }
+                        await this.ui.updateMemory(this.scopeStack, pName, 'declare');
                     }
-                } else {
-                    await this.pause(node.line);
-                    result = await this.evaluate(body);
-                    returnSourceId = body.domIds ? body.domIds[0] : null;
+                    await this.ui.wait(600);
+                    this.currentScope = fnScope;
+                    await this.ui.updateMemory(this.scopeStack);
+                    for (let i=0; i<paramIds.length; i++) {
+                        if (paramIds[i]) this.ui.resetTokenText(paramIds[i]);
+                    }
+                    this.ui.lockTokens(node.domIds || []);
+                    tokensLocked = true;
+                    this.callStack.push(node.line);
+                    callFramePushed = true;
+                    let result = undefined;
+                    let returnSourceId = null;
+                    const body = funcNode.body;
+                    if (body instanceof BlockStmt) {
+                        for(const stmt of body.body) {
+                            if (stmt instanceof ReturnStmt) {
+                                await this.pause(stmt.line);
+                                result = stmt.argument ? await this.evaluate(stmt.argument) : undefined;
+                                returnSourceId = (stmt.argument && stmt.argument.domIds.length > 0) ? stmt.argument.domIds[0] : stmt.domIds[0];
+                                break;
+                            }
+                            await this.execute(stmt);
+                        }
+                    } else {
+                        await this.pause(node.line);
+                        result = await this.evaluate(body);
+                        returnSourceId = body.domIds ? body.domIds[0] : null;
+                    }
+                    if (result !== undefined) {
+                        if(returnSourceId) await this.ui.animateReturnToCall(node.domIds, result, returnSourceId);
+                        else await this.ui.animateReturnToCall(node.domIds, result);
+                        await this.ui.wait(800);
+                    }
+                    return result;
+                } catch (runtimeError) {
+                    if (!runtimeError || !Array.isArray(runtimeError.__pedagogicalStack) || runtimeError.__pedagogicalStack.length === 0) {
+                        if (runtimeError && typeof runtimeError === 'object') runtimeError.__pedagogicalStack = this.buildPedagogicalStack(this.lastPausedLine);
+                    }
+                    throw runtimeError;
+                } finally {
+                    if (callFramePushed) this.callStack.pop();
+                    if (tokensLocked) this.ui.unlockTokens(node.domIds || []);
+                    this.currentScope = prevScope;
+                    const scopeIndex = this.scopeStack.lastIndexOf(fnScope);
+                    if (scopeIndex !== -1) this.scopeStack.splice(scopeIndex, 1);
+                    await this.ui.updateMemory(this.scopeStack);
+                    for (let i=0; i<paramIds.length; i++) {
+                        if (paramIds[i]) this.ui.resetTokenText(paramIds[i]);
+                    }
                 }
-                this.callStack.pop();
-                this.ui.unlockTokens(node.domIds || []);
-                if (result !== undefined) {
-                    if(returnSourceId) await this.ui.animateReturnToCall(node.domIds, result, returnSourceId);
-                    else await this.ui.animateReturnToCall(node.domIds, result);
-                    await this.ui.wait(800);
-                }
-                this.currentScope = prevScope;
-                this.scopeStack.pop();
-                await this.ui.updateMemory(this.scopeStack);
-                for (let i=0; i<paramIds.length; i++) {
-                    if (paramIds[i]) this.ui.resetTokenText(paramIds[i]);
-                }
-                return result;
             }
         }
     }

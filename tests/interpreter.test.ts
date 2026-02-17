@@ -565,8 +565,92 @@ describe('interpreter - coverage des noeuds', () => {
       const direAuRevoir = function() { return "bye"; };
     `);
     const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
-    expect(messages.some((message: string) => message.includes('avant son initialisation'))).toBe(true);
+    expect(messages.some((message: string) => message.includes('before initialization'))).toBe(true);
     expect(messages.some((message: string) => message.includes('Detail technique'))).toBe(true);
+  });
+
+  it('signale une erreur si une methode inexistante est appelee', async () => {
+    const ui = createMockUi() as any;
+    ui.log = vi.fn();
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let a = [1, 2, 3];
+      a.unsift(0);
+    `);
+    const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
+    expect(messages.some((message: string) => message.includes("n'est pas une fonction"))).toBe(true);
+    expect(messages.some((message: string) => message.includes('unsift is not a function'))).toBe(true);
+  });
+
+  it('nettoie la pile d appel apres une erreur en fonction', async () => {
+    const ui = createMockUi() as any;
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      function onClick() {
+        let a = [1, 2, 3];
+        a.unsift(0);
+      }
+      onClick();
+    `);
+    expect(interpreter.callStack.length).toBe(0);
+    expect(interpreter.scopeStack.length).toBe(1);
+  });
+
+  it('capture la fonction dans la pile pedagogique lors d une erreur', async () => {
+    const ui = createMockUi() as any;
+    ui.renderError = vi.fn(async () => {});
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      function onClick() {
+        let a = [1, 2, 3];
+        a.unsift(0);
+      }
+      onClick();
+    `);
+    expect(ui.renderError).toHaveBeenCalled();
+    const lastCall = ui.renderError.mock.calls[ui.renderError.mock.calls.length - 1][0];
+    const stack = Array.isArray(lastCall.pedagogicalStack) ? lastCall.pedagogicalStack : [];
+    expect(stack.some((entry: string) => String(entry).includes('onClick'))).toBe(true);
+  });
+
+  it('retourne ReferenceError pour une fonction non definie', async () => {
+    const ui = createMockUi() as any;
+    ui.renderError = vi.fn(async () => {});
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let resultat = saler(2);
+    `);
+    expect(ui.renderError).toHaveBeenCalled();
+    const payload = ui.renderError.mock.calls[ui.renderError.mock.calls.length - 1][0];
+    expect(payload.name).toBe('ReferenceError');
+    expect(String(payload.message)).toContain('saler is not defined');
+  });
+
+  it('detecte une erreur de syntaxe pour "lt" au lieu de "let"', async () => {
+    const ui = createMockUi() as any;
+    ui.renderError = vi.fn(async () => {});
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let a = [1, 2, 3];
+      lt b = a;
+    `);
+    expect(ui.renderError).toHaveBeenCalled();
+    const payload = ui.renderError.mock.calls[ui.renderError.mock.calls.length - 1][0];
+    expect(payload.name).toBe('SyntaxError');
+    expect(String(payload.technicalMessage)).toContain('Attendu: PUNCTUATION ;');
+  });
+
+  it('detecte une erreur de syntaxe pour parenthese manquante au parsing', async () => {
+    const ui = createMockUi() as any;
+    ui.renderError = vi.fn(async () => {});
+    const interpreter = new TestInterpreter(ui);
+    await interpreter.start(`
+      let total = (1 + 2;
+    `);
+    expect(ui.renderError).toHaveBeenCalled();
+    const payload = ui.renderError.mock.calls[ui.renderError.mock.calls.length - 1][0];
+    expect(payload.name).toBe('SyntaxError');
+    expect(String(payload.technicalMessage)).toContain('Attendu: PUNCTUATION )');
   });
 
   it('visualise le remplacement progressif des ${} dans un template literal', async () => {
