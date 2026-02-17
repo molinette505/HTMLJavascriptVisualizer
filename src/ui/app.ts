@@ -31,6 +31,7 @@ const normalizeExternalContent = (payload) => {
     let label = 'Externe';
     let clearConsole = true;
     let run = false;
+    let uiOptions = null;
 
     if (typeof payload === 'string') {
         code = payload;
@@ -52,6 +53,7 @@ const normalizeExternalContent = (payload) => {
 
         if (typeof payload.clearConsole === 'boolean') clearConsole = payload.clearConsole;
         if (typeof payload.run === 'boolean') run = payload.run;
+        if (payload.ui && typeof payload.ui === 'object') uiOptions = payload.ui;
     }
 
     return {
@@ -60,6 +62,7 @@ const normalizeExternalContent = (payload) => {
         label,
         clearConsole,
         run,
+        uiOptions,
         hasContent: code !== null || domHtml !== null
     };
 };
@@ -71,6 +74,10 @@ export const app = {
     scenarios: SCENARIOS,
     currentDomHtml: '<body></body>',
     pendingScenarioLoadTimer: null,
+    embedUiOptions: {
+        showLoadButton: true,
+        showFlowLineToggle: true
+    },
     
     toggleRun: () => {
         if (app.isRunning) app.stop();
@@ -208,6 +215,7 @@ export const app = {
 
     loadExternalContent: (payload) => {
         const normalized = normalizeExternalContent(payload);
+        if (normalized.uiOptions) app.applyEmbedUiOptions(normalized.uiOptions);
         if (!normalized.hasContent) {
             ui.log('Chargement externe ignore: aucun JS/HTML fourni.', 'warn');
             return false;
@@ -239,6 +247,33 @@ export const app = {
         }
 
         apply();
+        return true;
+    },
+
+    applyEmbedUiOptions: (options) => {
+        if (!options || typeof options !== 'object') return false;
+
+        if (typeof options.flowLineEnabled === 'boolean') {
+            ui.showFlowLine = options.flowLineEnabled;
+            ui.updateFlowLineControl();
+        }
+
+        if (typeof options.showFlowLineToggle === 'boolean') {
+            app.embedUiOptions.showFlowLineToggle = options.showFlowLineToggle;
+            const flowControl = document.getElementById('flow-line-control');
+            if (flowControl) flowControl.style.display = options.showFlowLineToggle ? '' : 'none';
+        }
+
+        if (typeof options.showLoadButton === 'boolean') {
+            app.embedUiOptions.showLoadButton = options.showLoadButton;
+            const loadButton = document.getElementById('btn-load');
+            if (loadButton) loadButton.style.display = options.showLoadButton ? '' : 'none';
+            if (!options.showLoadButton) {
+                const popup = document.getElementById('load-popup');
+                if (popup) popup.classList.remove('visible');
+            }
+        }
+
         return true;
     },
     

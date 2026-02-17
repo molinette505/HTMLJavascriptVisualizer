@@ -32,6 +32,10 @@ API globale exposee dans la page:
 - `label` (optionnel): texte de log
 - `clearConsole` (optionnel, defaut `true`)
 - `run` (optionnel, defaut `false`)
+- `ui` (optionnel):
+- `flowLineEnabled` (`true|false`): force la ligne ON/OFF
+- `showFlowLineToggle` (`true|false`): affiche/cache le toggle Ligne
+- `showLoadButton` (`true|false`): affiche/cache le bouton dossier
 
 Exemple (parent -> iframe, meme origine):
 
@@ -51,7 +55,22 @@ iframe.contentWindow.postMessage({
   type: 'visualizer:load-content',
   payload: {
     js: 'console.log(\"Bonjour\")',
-    html: '<body><div id="app"></div></body>'
+    html: '<body><div id="app"></div></body>',
+    ui: {
+      flowLineEnabled: false,
+      showFlowLineToggle: false,
+      showLoadButton: false
+    }
   }
 }, '*');
+```
+
+Appliquer seulement les options UI (sans recharger le code):
+
+```js
+iframe.contentWindow.setVisualizerEmbedOptions({
+  flowLineEnabled: false,
+  showFlowLineToggle: false,
+  showLoadButton: false
+});
 ```

@@ -12,6 +12,7 @@ window.editor = editor;
 window.consoleUI = consoleUI;
 window.loadVisualizerContent = (payload) => app.loadExternalContent(payload);
 window.setVisualizerContent = window.loadVisualizerContent;
+window.setVisualizerEmbedOptions = (options) => app.applyEmbedUiOptions(options);
 
 // --- KEYBOARD SHORTCUTS ---
 document.getElementById('code-input').addEventListener('keydown', (e) => {
@@ -141,9 +142,15 @@ setAppHeight();
 window.addEventListener('message', (event) => {
     const data = event ? event.data : null;
     if (!data || typeof data !== 'object') return;
-    if (data.type !== 'visualizer:load-content') return;
-    const payload = Object.prototype.hasOwnProperty.call(data, 'payload') ? data.payload : data;
-    app.loadExternalContent(payload);
+    if (data.type === 'visualizer:load-content') {
+        const payload = Object.prototype.hasOwnProperty.call(data, 'payload') ? data.payload : data;
+        app.loadExternalContent(payload);
+        return;
+    }
+    if (data.type === 'visualizer:set-options') {
+        const options = Object.prototype.hasOwnProperty.call(data, 'options') ? data.options : data;
+        app.applyEmbedUiOptions(options);
+    }
 });
 
 if (window.parent && window.parent !== window) {
