@@ -112,14 +112,15 @@ const getDomTreeRef = (node) => {
     return ref;
 };
 
-const buildDomTreeMarkup = (node, depth = 0) => {
+const buildDomTreeMarkup = (node, depth = 0, includeIds = true) => {
     if (!node) return '';
     const treeRef = getDomTreeRef(node);
     if (node.__domType === 'text') {
         const trimmed = String(node.textContent || '').trim();
         if (!trimmed) return '';
         const text = escapeHtml(trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed);
-        return `<div id="dom-tree-node-${treeRef}" class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr" data-dom-attr="text">"${text}"</span></div>`;
+        const idAttr = includeIds ? ` id="dom-tree-node-${treeRef}"` : '';
+        return `<div${idAttr} class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr" data-dom-attr="text">"${text}"</span></div>`;
     }
     if (node.__domType !== 'element') return '';
     const tag = escapeHtml(String(node.tagName || 'node').toLowerCase());
@@ -136,8 +137,9 @@ const buildDomTreeMarkup = (node, depth = 0) => {
         .map((name) => `<span class="dom-tree-attr" data-dom-attr="${escapeHtml(name)}">[${escapeHtml(name)}="${escapeHtml(node.attributes[name])}"]</span>`)
         .join('');
     const attrsPart = attrs ? `<span class="dom-tree-attrs">${attrs}</span>` : '';
-    const self = `<div id="dom-tree-node-${treeRef}" class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</div>`;
-    const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1)).filter(Boolean).join('');
+    const idAttr = includeIds ? ` id="dom-tree-node-${treeRef}"` : '';
+    const self = `<div${idAttr} class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</div>`;
+    const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1, includeIds)).filter(Boolean).join('');
     return `${self}${children}`;
 };
 
@@ -304,6 +306,10 @@ export const ui = {
     currentWaitResolver: null,
     heapRefs: new WeakMap(),
     heapRefCounter: 1,
+    memoryDomPreviewRefs: new Map(),
+    memoryDomTooltipEl: null,
+    memoryDomTooltipAnchorEl: null,
+    memoryDomTooltipBound: false,
     domDocument: null,
     domViewMode: 'tree',
     showFlowLine: true,
@@ -325,6 +331,101 @@ export const ui = {
     toggleFlowLine: () => {
         ui.showFlowLine = !ui.showFlowLine;
         ui.updateFlowLineControl();
+    },
+    initMemoryDomTooltip: () => {
+        if (ui.memoryDomTooltipBound) return;
+        const container = document.getElementById('memory-container');
+        if (!container) return;
+        ui.memoryDomTooltipBound = true;
+        const hoverSupported = window.matchMedia ? window.matchMedia('(hover: hover)').matches : true;
+        if (hoverSupported) {
+            container.addEventListener('mouseover', (event) => {
+                const target = event.target && event.target.closest ? event.target.closest('.mem-val[data-dom-preview="true"]') : null;
+                if (!target) return;
+                const previewId = target.dataset.domPreviewId;
+                const node = previewId ? ui.memoryDomPreviewRefs.get(previewId) : null;
+                if (!node) return;
+                ui.showMemoryDomTooltip(node, { anchorEl: target });
+            });
+            container.addEventListener('mouseout', (event) => {
+                const fromEl = event.target && event.target.closest ? event.target.closest('.mem-val[data-dom-preview="true"]') : null;
+                if (!fromEl) return;
+                const toEl = event.relatedTarget && event.relatedTarget.closest ? event.relatedTarget.closest('.mem-val[data-dom-preview="true"]') : null;
+                if (toEl === fromEl) return;
+                ui.hideMemoryDomTooltip();
+            });
+        }
+        container.addEventListener('click', (event) => {
+            const target = event.target && event.target.closest ? event.target.closest('.mem-val[data-dom-preview="true"]') : null;
+            if (!target) return;
+            const previewId = target.dataset.domPreviewId;
+            const node = previewId ? ui.memoryDomPreviewRefs.get(previewId) : null;
+            if (!node) return;
+            if (ui.memoryDomTooltipEl && ui.memoryDomTooltipAnchorEl === target) {
+                ui.hideMemoryDomTooltip();
+                return;
+            }
+            ui.showMemoryDomTooltip(node, { anchorEl: target });
+        });
+        container.addEventListener('scroll', () => {
+            if (!ui.memoryDomTooltipEl || !ui.memoryDomTooltipAnchorEl) return;
+            ui.positionMemoryDomTooltip(ui.memoryDomTooltipAnchorEl);
+        }, { passive: true });
+        document.addEventListener('pointerdown', (event) => {
+            const target = event.target;
+            if (!target || !target.closest) {
+                ui.hideMemoryDomTooltip();
+                return;
+            }
+            if (target.closest('.mem-val[data-dom-preview="true"]')) return;
+            ui.hideMemoryDomTooltip();
+        });
+        window.addEventListener('resize', () => {
+            if (!ui.memoryDomTooltipEl || !ui.memoryDomTooltipAnchorEl) return;
+            ui.positionMemoryDomTooltip(ui.memoryDomTooltipAnchorEl);
+        });
+    },
+    showMemoryDomTooltip: (node, options = {}) => {
+        if (!node || ui.isStopping) return;
+        ui.hideMemoryDomTooltip();
+        const previewNode = (node.__domType === 'document' && node.body) ? node.body : node;
+        const tooltip = document.createElement('div');
+        tooltip.className = 'memory-dom-tooltip';
+        tooltip.innerHTML = buildDomTreeMarkup(previewNode, 0, false) || '<div class="dom-tree-empty">Apercu indisponible.</div>';
+        document.body.appendChild(tooltip);
+        ui.memoryDomTooltipEl = tooltip;
+        ui.memoryDomTooltipAnchorEl = options.anchorEl || null;
+        ui.positionMemoryDomTooltip(ui.memoryDomTooltipAnchorEl, options.clientX, options.clientY);
+    },
+    positionMemoryDomTooltip: (anchorEl = null, x = 0, y = 0) => {
+        const tooltip = ui.memoryDomTooltipEl;
+        if (!tooltip) return;
+        const margin = 14;
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+        const rect = tooltip.getBoundingClientRect();
+        let left;
+        let top;
+        if (anchorEl && anchorEl.getBoundingClientRect) {
+            const anchorRect = anchorEl.getBoundingClientRect();
+            left = anchorRect.left + (anchorRect.width - rect.width) / 2;
+            top = anchorRect.bottom + 8;
+        } else {
+            left = x + 16;
+            top = y + 16;
+        }
+        if (left < margin) left = margin;
+        if (left + rect.width > viewportWidth - margin) left = viewportWidth - rect.width - margin;
+        if (top + rect.height > viewportHeight - margin) top = viewportHeight - rect.height - margin;
+        if (top < margin) top = margin;
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+    },
+    hideMemoryDomTooltip: () => {
+        if (!ui.memoryDomTooltipEl) return;
+        ui.memoryDomTooltipEl.remove();
+        ui.memoryDomTooltipEl = null;
+        ui.memoryDomTooltipAnchorEl = null;
     },
 
     toggleDrawer: () => {
@@ -1029,6 +1130,9 @@ export const ui = {
 
     updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null, openDrawer = true) => {
         if(ui.isStopping) return;
+        ui.initMemoryDomTooltip();
+        ui.hideMemoryDomTooltip();
+        ui.memoryDomPreviewRefs.clear();
         if(flashVarName && openDrawer) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
@@ -1073,7 +1177,10 @@ export const ui = {
                         ? (itemOwner ? `ref ${itemOwner}` : `Array(${item.length})`)
                         : (item===undefined ? 'empty' : valueToVisualText(item)));
                 const itemType = getMemoryTypeLabel(item, hasValue);
-                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}">${escapeHtml(displayValue)}</span>`;
+                const hasDomPreview = hasValue && isVirtualDomValue(item);
+                const previewAttrs = hasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${valueId}"` : '';
+                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${escapeHtml(displayValue)}</span>`;
+                if (hasDomPreview) ui.memoryDomPreviewRefs.set(valueId, item);
                 if(variableName===flashVarName && isTopLevel && flashIndex===idx) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 groupDiv.appendChild(row);
                 if (Array.isArray(item) && !isCircularRef) {
@@ -1114,7 +1221,11 @@ export const ui = {
                 const valueType = getMemoryTypeLabel(v.value, true);
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
-                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(valueType)}</span></span><span class="mem-name">${name}</span><span class="mem-val" id="${Array.isArray(v.value)?`mem-header-${name}`:`mem-val-${name}`}">${escapeHtml(valStr)}</span>`;
+                const topValueId = Array.isArray(v.value) ? `mem-header-${name}` : `mem-val-${name}`;
+                const topHasDomPreview = isVirtualDomValue(v.value);
+                const topPreviewAttrs = topHasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${topValueId}"` : '';
+                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(valueType)}</span></span><span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${escapeHtml(valStr)}</span>`;
+                if (topHasDomPreview) ui.memoryDomPreviewRefs.set(topValueId, v.value);
                 row.className = 'memory-cell'; 
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }
