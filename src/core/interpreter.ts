@@ -194,9 +194,10 @@ export class Interpreter {
         let name = (error && error.name) ? String(error.name) : 'Error';
         const raw = (error && error.message) ? String(error.message) : String(error);
         const stack = (error && error.stack) ? String(error.stack) : '';
+        const errorLine = (error && Number.isFinite(error.line)) ? Number(error.line) : null;
         const pedagogicalStack = (error && Array.isArray(error.__pedagogicalStack) && error.__pedagogicalStack.length > 0)
             ? error.__pedagogicalStack.map((entry) => String(entry))
-            : this.buildPedagogicalStack(this.lastPausedLine);
+            : (errorLine ? [`parser (ligne ${errorLine})`] : this.buildPedagogicalStack(this.lastPausedLine));
         let friendly = raw;
         const declared = raw.match(/^Variable (.+) déjà déclarée$/);
         if (declared) {
@@ -223,6 +224,11 @@ export class Interpreter {
             name = 'ReferenceError';
             friendly = `${unknownFn[1]} is not defined.`;
         }
+        const notFunction = raw.match(/^(.+) is not a function$/);
+        if (notFunction) {
+            name = 'TypeError';
+            friendly = raw;
+        }
         if (raw.includes('Cannot read properties of undefined')) {
             name = 'TypeError';
             friendly = "Impossible de lire une propriete d'une valeur undefined.";
@@ -231,7 +237,7 @@ export class Interpreter {
             name = 'TypeError';
             friendly = "Impossible d'ecrire une propriete sur une valeur undefined.";
         }
-        if (raw.includes('is not a function')) {
+        if (raw.includes('is not a function') && !notFunction) {
             name = 'TypeError';
             friendly = "Tentative d'appel d'une valeur qui n'est pas une fonction.";
         }
@@ -243,10 +249,13 @@ export class Interpreter {
         if (raw === 'Unexpected token' || raw === 'Invalid assignment target' || raw.includes('Syntaxe de fonction fléchée invalide')) {
             name = 'SyntaxError';
         }
-        return { name, raw, friendly, stack, pedagogicalStack };
+        if (name === 'SyntaxError' && errorLine && !friendly.includes('ligne')) {
+            friendly = `${friendly} (ligne ${errorLine})`;
+        }
+        return { name, raw, friendly, stack, pedagogicalStack, line: errorLine };
     }
     async logRuntimeError(error, prefix = "Erreur") {
-        const { name, raw, friendly, stack, pedagogicalStack } = this.formatRuntimeError(error);
+        const { name, raw, friendly, stack, pedagogicalStack, line } = this.formatRuntimeError(error);
         if (typeof this.ui.renderError === 'function') {
             await this.ui.renderError({
                 prefix,
@@ -255,11 +264,12 @@ export class Interpreter {
                 technicalMessage: raw,
                 stack,
                 pedagogicalStack,
+                line,
                 errorObject: error
             });
             return;
         }
-        this.ui.log(`${prefix}: ${friendly}`, "error");
+        this.ui.log(`${prefix}: ${name}: ${friendly}`, "error");
         if (friendly !== raw) this.ui.log(`Detail technique: ${raw}`, "error");
     }
     refreshDomView() {
@@ -1219,7 +1229,7 @@ export class Interpreter {
                     paramNames = funcNode.params.map(p => p.name);
                     paramIds = funcNode.params.map(p => p.id);
                 } else {
-                    throw new Error(`Fonction ${node.callee.name} inconnue`);
+                    throw new ReferenceError(`${node.callee.name} is not defined`);
                 }
             }
             if (funcNode) {

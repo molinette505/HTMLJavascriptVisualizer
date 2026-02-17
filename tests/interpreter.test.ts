@@ -578,7 +578,7 @@ describe('interpreter - coverage des noeuds', () => {
       a.unsift(0);
     `);
     const messages = ui.log.mock.calls.map((call: any[]) => String(call[0]));
-    expect(messages.some((message: string) => message.includes("n'est pas une fonction"))).toBe(true);
+    expect(messages.some((message: string) => message.includes('TypeError'))).toBe(true);
     expect(messages.some((message: string) => message.includes('unsift is not a function'))).toBe(true);
   });
 
@@ -637,6 +637,7 @@ describe('interpreter - coverage des noeuds', () => {
     expect(ui.renderError).toHaveBeenCalled();
     const payload = ui.renderError.mock.calls[ui.renderError.mock.calls.length - 1][0];
     expect(payload.name).toBe('SyntaxError');
+    expect(String(payload.message)).toContain('ligne');
     expect(String(payload.technicalMessage)).toContain('Attendu: PUNCTUATION ;');
   });
 
@@ -650,6 +651,7 @@ describe('interpreter - coverage des noeuds', () => {
     expect(ui.renderError).toHaveBeenCalled();
     const payload = ui.renderError.mock.calls[ui.renderError.mock.calls.length - 1][0];
     expect(payload.name).toBe('SyntaxError');
+    expect(String(payload.message)).toContain('ligne');
     expect(String(payload.technicalMessage)).toContain('Attendu: PUNCTUATION )');
   });
 

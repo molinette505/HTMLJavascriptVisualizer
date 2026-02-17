@@ -1389,13 +1389,16 @@ export const ui = {
             ? errorObj.pedagogicalStack.map((entry) => String(entry)).filter((entry) => entry.length > 0)
             : [];
         const prefix = errorObj.prefix ? `${String(errorObj.prefix)}: ` : '';
+        const lineSuffix = (Number.isFinite(errorObj.line) && Number(errorObj.line) > 0 && !String(friendlyMessage).includes('ligne'))
+            ? ` (ligne ${Number(errorObj.line)})`
+            : '';
 
         const entry = document.createElement('div');
         entry.className = 'log-entry log-error-entry';
 
         const title = document.createElement('div');
         title.className = 'console-error-title';
-        title.innerText = `${prefix}${name}: ${friendlyMessage}`;
+        title.innerText = `${prefix}${name}: ${friendlyMessage}${lineSuffix}`;
         entry.appendChild(title);
 
         const detailLines = [];
