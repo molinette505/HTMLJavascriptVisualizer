@@ -1559,12 +1559,12 @@ export const ui = {
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
         const visibleScopes = scopeStack.filter((scope) => {
-            const names = Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false);
+            const names = Object.keys(scope.variables).filter((name) => name !== 'document');
             return names.length > 0 || scope.name === 'Global';
         });
         const arrayOwners = new Map();
         visibleScopes.forEach((scope) => {
-            Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false).forEach((name) => {
+            Object.keys(scope.variables).filter((name) => name !== 'document').forEach((name) => {
                 const currentValue = scope.variables[name].value;
                 if (Array.isArray(currentValue)) {
                     const heapId = ui.getHeapId(currentValue);
@@ -1626,10 +1626,10 @@ export const ui = {
                 scopeDiv.appendChild(titleDiv); const varsContainer = document.createElement('div'); varsContainer.id = `scope-vars-${scope.id}`; scopeDiv.appendChild(varsContainer); container.appendChild(scopeDiv);
             }
             const varsContainer = document.getElementById(`scope-vars-${scope.id}`);
-            const activeVarNames = new Set(Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false));
+            const activeVarNames = new Set(Object.keys(scope.variables).filter((name) => name !== 'document'));
             Array.from(varsContainer.children).forEach(child => { if (!activeVarNames.has(child.getAttribute('data-var-name'))) child.remove(); });
 
-            Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false).forEach(name => {
+            Object.keys(scope.variables).filter((name) => name !== 'document').forEach(name => {
                 const v = scope.variables[name]; const groupId = `mem-group-${scope.id}-${name}`; let groupDiv = document.getElementById(groupId);
                 ui.currentMemoryVarSnapshot.set(name, {
                     value: v.value,
