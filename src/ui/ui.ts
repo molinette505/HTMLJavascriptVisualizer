@@ -1570,7 +1570,7 @@ export const ui = {
         });
         const visibleIds = new Set(visibleScopes.map(s => s.id));
         Array.from(container.children).forEach(child => { if (!visibleIds.has(child.id)) child.remove(); });
-        const renderArrayRows = (groupDiv, scopeId, variableName, arr, path = [], depth = 1, parentHeapIds = new Set()) => {
+        const renderArrayRows = (groupDiv, scopeId, variableName, arr, existingRowIds = new Set(), path = [], depth = 1, parentHeapIds = new Set()) => {
             for (let idx = 0; idx < arr.length; idx++) {
                 const hasValue = Object.prototype.hasOwnProperty.call(arr, idx);
                 const item = hasValue ? arr[idx] : undefined;
@@ -1582,7 +1582,8 @@ export const ui = {
                 const valueId = isTopLevel ? `mem-val-${variableName}-${idx}` : `mem-val-${variableName}-${pathKey}`;
                 const row = document.createElement('div');
                 row.id = rowId;
-                row.className = 'memory-cell array-element cell-entry';
+                row.className = 'memory-cell array-element';
+                if (!existingRowIds.has(rowId)) row.classList.add('cell-entry');
                 row.setAttribute('data-path', pathKey);
                 row.setAttribute('data-var-name', variableName);
                 row.style.paddingLeft = `${28 + (depth - 1) * 18}px`;
@@ -1599,12 +1600,15 @@ export const ui = {
                 const previewAttrs = hasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${valueId}"` : '';
                 row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${escapeHtml(displayValue)}</span>`;
                 if (hasDomPreview) ui.memoryDomPreviewRefs.set(valueId, item);
-                if(variableName===flashVarName && isTopLevel && flashIndex===idx) { row.classList.add(`flash-${flashType}`); targetEl = row; }
+                if (variableName === flashVarName && isTopLevel && flashIndex === idx) {
+                    if (flashType === 'insert' || flashType === 'delete') row.classList.add(`flash-${flashType}`);
+                    targetEl = row;
+                }
                 groupDiv.appendChild(row);
                 if (Array.isArray(item) && !isCircularRef) {
                     const nextParentHeapIds = new Set(parentHeapIds);
                     if (itemHeapId) nextParentHeapIds.add(itemHeapId);
-                    renderArrayRows(groupDiv, scopeId, variableName, item, nextPath, depth + 1, nextParentHeapIds);
+                    renderArrayRows(groupDiv, scopeId, variableName, item, existingRowIds, nextPath, depth + 1, nextParentHeapIds);
                 }
             }
         };
@@ -1653,11 +1657,14 @@ export const ui = {
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 if (Array.isArray(v.value)) {
+                    const existingRowIds = new Set(
+                        Array.from(groupDiv.querySelectorAll('.array-element')).map((element) => element.id)
+                    );
                     groupDiv.querySelectorAll('.array-element').forEach(r => r.remove());
                     const rootHeapId = ui.getHeapId(v.value);
                     const rootHeapIds = new Set();
                     if (rootHeapId) rootHeapIds.add(rootHeapId);
-                    renderArrayRows(groupDiv, scope.id, name, v.value, [], 1, rootHeapIds);
+                    renderArrayRows(groupDiv, scope.id, name, v.value, existingRowIds, [], 1, rootHeapIds);
                 } else { groupDiv.querySelectorAll('.array-element').forEach(r=>r.remove()); }
             });
         });

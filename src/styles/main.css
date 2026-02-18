@@ -855,8 +855,14 @@
         .flash-write { animation: flashWrite calc(1s * var(--time-scale)) ease-out; }
         .flash-read { animation: flashRead calc(1s * var(--time-scale)) ease-out; }
         .console-flash { animation: flashConsole calc(0.5s * var(--time-scale)) ease-out; }
-        @keyframes cellEntry { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
-        @keyframes slideOut { 0% { opacity: 1; } 100% { opacity: 0; transform: translateX(20px); } }
+        @keyframes cellEntry {
+            0% { opacity: 0; transform: translateX(-10px) scale(0.92); }
+            100% { opacity: 1; transform: translateX(0) scale(1); }
+        }
+        @keyframes slideOut {
+            0% { opacity: 1; transform: translateX(0) scale(1); }
+            100% { opacity: 0; transform: translateX(20px) scale(0.9); }
+        }
         @keyframes flashWrite { 0% { background: rgba(59, 130, 246, 0.5); } 100% { background: transparent; } }
         @keyframes flashRead { 0% { background: rgba(34, 211, 238, 0.4); } 100% { background: transparent; } }
         @keyframes flashConsole { 0% { background: rgba(255, 255, 255, 0.15); } 100% { background: transparent; } }
