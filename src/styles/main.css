@@ -678,7 +678,7 @@
             text-transform: lowercase;
         }
         .mem-name { color: var(--code-var); font-weight: bold; font-family: monospace; }
-        .mem-val { display: block; width: 100%; max-width: 100%; text-align: left; color: var(--code-string); font-family: monospace; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35; }
+        .mem-val { display: block; width: 100%; max-width: 100%; text-align: center; align-self: center; color: var(--code-string); font-family: monospace; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35; }
         .console-box { flex: 1; background: #000; overflow-y: auto; padding: 10px; font-family: var(--code-font-family); color: #dcdfe4; font-size: 13px; }
         .log-entry { padding: 6px 8px; border-bottom: 1px solid #222; word-wrap: break-word; line-height: 1.4; transition: background 0.3s; border-radius: 6px; margin-bottom: 4px; }
         .log-console-entry { color: #dbe2ec; }
@@ -797,6 +797,19 @@
             background-color: rgba(59, 130, 246, 0.18) !important;
             border-radius: 6px;
             transition: box-shadow 0.12s ease, background-color 0.12s ease;
+        }
+        .expr-flow-target {
+            pointer-events: none;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+        }
+        .expr-collapse-highlight {
+            pointer-events: none;
+            border-radius: 6px;
+            background: rgba(167, 139, 250, 0.2);
+            border: 1px solid rgba(167, 139, 250, 0.45);
+            box-shadow: 0 0 12px rgba(167, 139, 250, 0.28);
         }
         .flow-var-code {
             color: #fef08a !important;

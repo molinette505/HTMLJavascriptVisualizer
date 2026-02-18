@@ -994,6 +994,35 @@ export const ui = {
         return document.getElementById(`dom-tree-node-${ref}`);
     },
     getElementsByIds: (ids) => (ids || []).map((id) => document.getElementById(id)).filter(Boolean),
+    getVisibleCodeElements: (ids) => ui.getElementsByIds(ids).filter((element) => {
+        if (!element || element.style.display === 'none') return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width > 1 && rect.height > 1;
+    }),
+    createCodeExpressionTarget: (ids) => {
+        const elements = ui.getVisibleCodeElements(ids);
+        if (elements.length === 0) return { target: null, elements: [], clear: () => {} };
+        if (elements.length === 1) return { target: elements[0], elements, clear: () => {} };
+        const rects = elements.map((element) => element.getBoundingClientRect());
+        const minTop = Math.min(...rects.map((rect) => rect.top));
+        const minLeft = Math.min(...rects.map((rect) => rect.left));
+        const maxRight = Math.max(...rects.map((rect) => rect.right));
+        const maxBottom = Math.max(...rects.map((rect) => rect.bottom));
+        const box = document.createElement('div');
+        box.className = 'expr-flow-target';
+        box.style.position = 'fixed';
+        box.style.left = `${Math.max(0, minLeft - 2)}px`;
+        box.style.top = `${Math.max(0, minTop - 2)}px`;
+        box.style.width = `${Math.max(10, maxRight - minLeft + 4)}px`;
+        box.style.height = `${Math.max(10, maxBottom - minTop + 4)}px`;
+        box.style.zIndex = '12020';
+        document.body.appendChild(box);
+        return {
+            target: box,
+            elements,
+            clear: () => { if (box.parentElement) box.remove(); }
+        };
+    },
     getDomAttributeElements: (nodeElement, property = '') => {
         if (!nodeElement) return [];
         const attrName = mapDomPropertyToAttr(property);
@@ -1082,25 +1111,33 @@ export const ui = {
         await ui.wait(220);
         ui.renderDomPanel();
         const startEl = ui.getDomTreeNodeElement(node);
-        const tokenEl = document.getElementById(tokenId);
-        if (!startEl || !tokenEl) return;
-        const codeEls = ui.getElementsByIds((tokenGroupIds && tokenGroupIds.length > 0) ? tokenGroupIds : [tokenId]);
+        const expressionIds = (tokenGroupIds && tokenGroupIds.length > 0) ? tokenGroupIds : [tokenId];
+        const expressionTarget = ui.createCodeExpressionTarget(expressionIds);
+        const tokenEl = expressionTarget.target || document.getElementById(tokenId);
+        if (!startEl || !tokenEl) {
+            expressionTarget.clear();
+            return;
+        }
         const attrEls = ui.getDomAttributeElements(startEl, property);
         startEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-        ui.setFlowHighlight([startEl, ...codeEls], true);
         ui.setDomAttributeHighlight(attrEls, true);
-        await ui.wait(180);
-        const shouldFlyAttributeValue = attrEls.length > 0 && !['innerText', 'innerHTML', 'textContent'].includes(String(property || ''));
-        if (shouldFlyAttributeValue) {
-            await ui.flyHelper(replacementValue, attrEls[0], tokenEl, false);
-        } else {
-            await ui.flyDomNodeHelper(startEl, tokenEl, false);
+        try {
+            await ui.wait(180);
+            const shouldFlyAttributeValue = attrEls.length > 0 && !['innerText', 'innerHTML', 'textContent'].includes(String(property || ''));
+            const sourceEl = shouldFlyAttributeValue ? (attrEls[0] || startEl) : startEl;
+            await ui.animateWithFlowHighlight(sourceEl, tokenEl, async () => {
+                if (shouldFlyAttributeValue) {
+                    await ui.flyHelper(replacementValue, sourceEl, tokenEl, false);
+                } else {
+                    await ui.flyDomNodeHelper(startEl, tokenEl, false);
+                }
+            });
+            if (replacementValue !== undefined) ui.replaceTokenText(tokenId, replacementValue, true);
+            await ui.wait(120);
+        } finally {
+            ui.setDomAttributeHighlight(attrEls, false);
+            expressionTarget.clear();
         }
-        if (replacementValue !== undefined) ui.replaceTokenText(tokenId, replacementValue, true);
-        await ui.wait(160);
-        ui.setFlowHighlight([startEl, ...codeEls], false);
-        ui.setDomAttributeHighlight(attrEls, false);
-        await ui.wait(120);
     },
     animateTokenToDomNode: async (tokenId, node, value = null) => {
         if (ui.isStopping || !tokenId || !node) return;
@@ -1385,14 +1422,6 @@ export const ui = {
         const friendlyMessage = (errorObj.message !== undefined && errorObj.message !== null)
             ? String(errorObj.message)
             : ((rawError && rawError.message) ? String(rawError.message) : 'Erreur runtime');
-        const technicalMessage = (errorObj.technicalMessage !== undefined && errorObj.technicalMessage !== null)
-            ? String(errorObj.technicalMessage)
-            : ((rawError && rawError.message) ? String(rawError.message) : friendlyMessage);
-        const stackSource = errorObj.stack || (rawError && rawError.stack) || '';
-        const filteredStack = filterRuntimeStack(stackSource);
-        const pedagogicalStack = Array.isArray(errorObj.pedagogicalStack)
-            ? errorObj.pedagogicalStack.map((entry) => String(entry)).filter((entry) => entry.length > 0)
-            : [];
         const prefix = errorObj.prefix ? `${String(errorObj.prefix)}: ` : '';
         const lineSuffix = (Number.isFinite(errorObj.line) && Number(errorObj.line) > 0 && !String(friendlyMessage).includes('ligne'))
             ? ` (ligne ${Number(errorObj.line)})`
@@ -1405,31 +1434,6 @@ export const ui = {
         title.className = 'console-error-title';
         title.innerText = `${prefix}${name}: ${friendlyMessage}${lineSuffix}`;
         entry.appendChild(title);
-
-        const detailLines = [];
-        if (technicalMessage && technicalMessage !== friendlyMessage) {
-            detailLines.push(`Message technique: ${technicalMessage}`);
-        }
-        if (pedagogicalStack.length > 0) {
-            detailLines.push('Pile d\'execution:');
-            pedagogicalStack.forEach((entry) => detailLines.push(`  at ${entry}`));
-        } else if (filteredStack) {
-            detailLines.push(filteredStack);
-        } else if (stackSource) {
-            detailLines.push(String(stackSource));
-        }
-        if (detailLines.length > 0) {
-            const details = document.createElement('details');
-            details.className = 'console-error-details';
-            const summary = document.createElement('summary');
-            summary.innerText = '▶ Details';
-            details.appendChild(summary);
-            const pre = document.createElement('pre');
-            pre.className = 'console-error-stack';
-            pre.innerText = detailLines.join('\n');
-            details.appendChild(pre);
-            entry.appendChild(details);
-        }
 
         box.appendChild(entry);
         box.scrollTop = box.scrollHeight;
@@ -1593,7 +1597,7 @@ export const ui = {
                 const displayValue = !hasValue
                     ? 'empty'
                     : (Array.isArray(item)
-                        ? (itemOwner ? `ref ${itemOwner}` : `Array(${item.length})`)
+                        ? (itemOwner ? `ref ${itemOwner}` : `length=${item.length}`)
                         : (item===undefined ? 'empty' : valueToVisualText(item)));
                 const itemType = getMemoryTypeLabel(item, hasValue);
                 const hasDomPreview = hasValue && isVirtualDomValue(item);
@@ -1638,7 +1642,7 @@ export const ui = {
                 if (Array.isArray(v.value)) {
                     const heapId = ui.getHeapId(v.value);
                     const owner = heapId ? arrayOwners.get(heapId) : null;
-                    valStr = (owner && owner !== name) ? `ref ${owner}` : `Array(${v.value.length})`;
+                    valStr = (owner && owner !== name) ? `ref ${owner}` : `length=${v.value.length}`;
                 } else if (v.value && v.value.type && v.value.type.includes('func')) {
                     const paramsDisplay = Array.isArray(v.value.params) ? v.value.params.join(',') : `${v.value.params || ''}`;
                     valStr = v.functionAlias ? `${v.functionAlias}(${paramsDisplay})` : `f(${paramsDisplay})`;
@@ -1703,7 +1707,8 @@ export const ui = {
             const start = startEl.getBoundingClientRect(); 
             const end = endEl.getBoundingClientRect();
             
-            if (start.top < 0 || end.top < 0) return; 
+            if (start.top < 0 || end.top < 0) return;
+            if (start.width < 2 || start.height < 2 || end.width < 2 || end.height < 2) return;
             const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = valueToVisualText(value); document.body.appendChild(flyer);
             
             flyer.style.zIndex = zIndex; 
@@ -1799,14 +1804,19 @@ export const ui = {
         const memId = ui.getMemoryValueElementId(varName, index);
         ui.ensureVisible(memId);
         const memEl = document.getElementById(memId);
-        const tokenEl = document.getElementById(targetTokenId);
-        if (!tokenEl || !memEl) return;
-        const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true, index, codeIndexTokenId);
+        const expressionTarget = Array.isArray(targetTokenId)
+            ? ui.createCodeExpressionTarget(targetTokenId)
+            : { target: document.getElementById(targetTokenId), elements: [], clear: () => {} };
+        const tokenEl = expressionTarget.target;
+        if (!tokenEl || !memEl) { expressionTarget.clear(); return; }
+        const firstTokenId = Array.isArray(targetTokenId) ? targetTokenId[0] : targetTokenId;
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || firstTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
                 await ui.flyHelper(value, memEl, tokenEl, false);
             });
         } finally {
+            expressionTarget.clear();
             clearVarHighlight();
         }
     },
@@ -1818,14 +1828,19 @@ export const ui = {
         const memId = `mem-header-${varName}`;
         ui.ensureVisible(memId);
         const memEl = document.getElementById(memId);
-        const tokenEl = document.getElementById(targetTokenId);
-        if (!tokenEl || !memEl) return;
-        const clearVarHighlight = ui.setVariableRelationHighlight(varName, targetTokenId, true);
+        const expressionTarget = Array.isArray(targetTokenId)
+            ? ui.createCodeExpressionTarget(targetTokenId)
+            : { target: document.getElementById(targetTokenId), elements: [], clear: () => {} };
+        const tokenEl = expressionTarget.target;
+        if (!tokenEl || !memEl) { expressionTarget.clear(); return; }
+        const firstTokenId = Array.isArray(targetTokenId) ? targetTokenId[0] : targetTokenId;
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, firstTokenId, true);
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
                 await ui.flyHelper(value, memEl, tokenEl, false);
             });
         } finally {
+            expressionTarget.clear();
             clearVarHighlight();
         }
     },
@@ -1837,19 +1852,72 @@ export const ui = {
         const memId = `mem-val-${varName}-${startIndex}`;
         ui.ensureVisible(memId);
         const memEl = document.getElementById(memId);
-        const tokenEl = document.getElementById(targetTokenId);
-        if (!memEl || !tokenEl) return;
+        const expressionTarget = Array.isArray(targetTokenId)
+            ? ui.createCodeExpressionTarget(targetTokenId)
+            : { target: document.getElementById(targetTokenId), elements: [], clear: () => {} };
+        const tokenEl = expressionTarget.target;
+        if (!memEl || !tokenEl) { expressionTarget.clear(); return; }
         const valStr = `[${values.map(v => JSON.stringify(formatValue(v))).join(', ')}]`;
-        const clearVarHighlight = ui.setVariableRelationHighlight(varName, targetTokenId, true);
+        const firstTokenId = Array.isArray(targetTokenId) ? targetTokenId[0] : targetTokenId;
+        const clearVarHighlight = ui.setVariableRelationHighlight(varName, firstTokenId, true);
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
                 await ui.flyHelper(valStr, memEl, tokenEl, false);
             });
         } finally {
+            expressionTarget.clear();
             clearVarHighlight();
         }
     },
-    animateOperationCollapse: async (domIds, result) => { if (ui.skipMode || ui.isStopping) return; const elements = domIds.map(id => document.getElementById(id)).filter(e => e); if (elements.length === 0) return; elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.backgroundColor = 'rgba(167, 139, 250, 0.4)'; el.style.boxShadow = '0 0 2px rgba(167, 139, 250, 0.6)'; }); await ui.wait(ui.baseDelay); elements.forEach(el => { el.style.backgroundColor = 'transparent'; el.style.boxShadow = 'none'; el.style.opacity = '0.5'; }); await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
+    animateOperationCollapse: async (domIds, result) => {
+        if (ui.skipMode || ui.isStopping) return;
+        const elements = domIds
+            .map((id) => document.getElementById(id))
+            .filter((element) => element && element.style.display !== 'none');
+        if (elements.length === 0) return;
+        elements.forEach((element) => {
+            if (!ui.modifiedTokens.has(element.id)) {
+                ui.modifiedTokens.set(element.id, { original: element.innerText, transient: true });
+            }
+        });
+
+        let groupHighlight = null;
+        if (elements.length > 1) {
+            const rects = elements.map((element) => element.getBoundingClientRect());
+            const minTop = Math.min(...rects.map((rect) => rect.top));
+            const minLeft = Math.min(...rects.map((rect) => rect.left));
+            const maxRight = Math.max(...rects.map((rect) => rect.right));
+            const maxBottom = Math.max(...rects.map((rect) => rect.bottom));
+            groupHighlight = document.createElement('div');
+            groupHighlight.className = 'expr-collapse-highlight';
+            groupHighlight.style.position = 'fixed';
+            groupHighlight.style.left = `${Math.max(0, minLeft - 2)}px`;
+            groupHighlight.style.top = `${Math.max(0, minTop - 2)}px`;
+            groupHighlight.style.width = `${Math.max(10, maxRight - minLeft + 4)}px`;
+            groupHighlight.style.height = `${Math.max(10, maxBottom - minTop + 4)}px`;
+            groupHighlight.style.zIndex = '12022';
+            document.body.appendChild(groupHighlight);
+        } else {
+            elements.forEach((element) => {
+                element.style.backgroundColor = 'rgba(167, 139, 250, 0.4)';
+                element.style.boxShadow = '0 0 2px rgba(167, 139, 250, 0.6)';
+            });
+        }
+
+        await ui.wait(ui.baseDelay);
+        if (groupHighlight && groupHighlight.parentElement) groupHighlight.remove();
+        elements.forEach((element) => {
+            element.style.backgroundColor = 'transparent';
+            element.style.boxShadow = 'none';
+            element.style.opacity = '0.5';
+        });
+        await ui.wait(ui.baseDelay);
+        const first = elements[0];
+        first.innerText = valueToVisualText(result);
+        first.style.opacity = '1';
+        first.classList.add('op-result');
+        for (let index = 1; index < elements.length; index++) elements[index].style.display = 'none';
+    },
     animateReturnToCall: async (callDomIds, result, sourceId = null) => { if (ui.skipMode) { const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); if(elements.length > 0) { const first = elements[0]; if(!ui.modifiedTokens.has(first.id)) ui.modifiedTokens.set(first.id, { original: first.innerText, transient: true }); first.innerText = valueToVisualText(result); first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) { const el = elements[i]; if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.display = 'none'; } } return; } const startEl = document.getElementById(callDomIds[0]); if(!startEl) return; if (sourceId) { const sourceEl = document.getElementById(sourceId); if (sourceEl) { await ui.flyHelper(result, sourceEl, startEl, false); } } const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.opacity = '0.5'; }); if (!sourceId) await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
     animateParamPass: async (value, sourceId, targetId) => { if (ui.skipMode || ui.isStopping) return; const sourceEl = document.getElementById(sourceId); const targetEl = document.getElementById(targetId); await ui.flyHelper(value, sourceEl, targetEl); }
 };

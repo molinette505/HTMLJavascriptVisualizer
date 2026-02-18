@@ -806,9 +806,8 @@ export class Interpreter {
             }
             const prop = node.computed ? await this.evaluate(node.property) : node.property.value;
             if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) {
-                await this.ui.animateReadHeader(node.object.name, obj.length, node.domIds[0]);
-                this.ui.replaceTokenText(node.domIds[0], obj.length, true);
-                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.animateReadHeader(node.object.name, obj.length, node.domIds);
+                await this.ui.animateOperationCollapse(node.domIds, obj.length);
                 await this.ui.wait(800);
                 return obj.length;
             }
@@ -818,26 +817,23 @@ export class Interpreter {
                 const sourceIndexTokenId = (node.computed && node.property)
                     ? this.getExpressionDisplayTokenId(node.property)
                     : null;
-                await this.ui.animateRead(node.object.name, val, node.domIds[0], prop, sourceVarTokenId, sourceIndexTokenId);
-                this.ui.replaceTokenText(node.domIds[0], val, true);
-                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.animateRead(node.object.name, val, node.domIds, prop, sourceVarTokenId, sourceIndexTokenId);
+                await this.ui.animateOperationCollapse(node.domIds, val);
                 await this.ui.wait(800);
                 return val;
             }
             if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) {
                 const len = obj.length;
-                await this.ui.animateRead(node.object.name, len, node.domIds[0]);
-                this.ui.replaceTokenText(node.domIds[0], len, true);
-                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.animateRead(node.object.name, len, node.domIds);
+                await this.ui.animateOperationCollapse(node.domIds, len);
                 await this.ui.wait(800);
                 return len;
             }
             if (typeof obj === 'string' && node.object instanceof Identifier) {
                 const val = obj[prop];
                 if (typeof val === 'function') return val.bind(obj);
-                await this.ui.animateRead(node.object.name, val, node.domIds[0]);
-                this.ui.replaceTokenText(node.domIds[0], val, true);
-                for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
+                await this.ui.animateRead(node.object.name, val, node.domIds);
+                await this.ui.animateOperationCollapse(node.domIds, val);
                 await this.ui.wait(800);
                 return val;
             }
@@ -906,17 +902,17 @@ export class Interpreter {
                 } else { obj = await this.evaluate(node.callee.object); }
                 if (Array.isArray(obj) && arrName) {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value; let result;
-                    if (method === 'push') { const newIndex = obj.length; for (let i = 0; i < argValues.length; i++) { const val = argValues[i]; const currentIdx = newIndex + i; obj[currentIdx] = undefined; await this.ui.updateMemory(this.scopeStack); if (node.args[i]) { await this.ui.animateAssignment(arrName, val, node.args[i].domIds[0], currentIdx, arrVarTokenId); } obj[currentIdx] = val; await this.ui.updateMemory(this.scopeStack, arrName, 'write', currentIdx); } result = obj.length; await this.ui.animateReturnHeader(arrName, result, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; } 
-                    else if (method === 'pop') { const lastIndex = obj.length - 1; const val = obj[lastIndex]; await this.ui.animateRead(arrName, val, node.domIds[0], lastIndex, arrVarTokenId); await this.ui.animateArrayPop(arrName, lastIndex); result = obj.pop(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
-                    else if (method === 'splice') { const start = argValues[0]; const count = argValues[1] || 0; const removedItems = obj.slice(start, start + count); if (removedItems.length > 0) { const indicesToHighlight = []; for(let i=0; i<count; i++) indicesToHighlight.push(start + i); await this.ui.highlightArrayElements(arrName, indicesToHighlight, 'delete'); await this.ui.wait(500); await this.ui.animateSpliceRead(arrName, removedItems, node.domIds[0], start); } result = obj.splice(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); const resultStr = `[${result.map(v => JSON.stringify(v)).join(', ')}]`; this.ui.setRawTokenText(node.domIds[0], resultStr, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
-                    else if (method === 'slice') { const start = argValues.length > 0 ? argValues[0] : 0; const normalizedStart = typeof start === 'number' && start < 0 ? Math.max(obj.length + start, 0) : (start || 0); result = obj.slice(...argValues); if (result.length > 0) { await this.ui.animateSpliceRead(arrName, result, node.domIds[0], normalizedStart); } const resultStr = `[${result.map(v => JSON.stringify(v)).join(', ')}]`; this.ui.setRawTokenText(node.domIds[0], resultStr, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
+                    if (method === 'push') { const newIndex = obj.length; for (let i = 0; i < argValues.length; i++) { const val = argValues[i]; const currentIdx = newIndex + i; obj[currentIdx] = undefined; await this.ui.updateMemory(this.scopeStack); if (node.args[i]) { await this.ui.animateAssignment(arrName, val, node.args[i].domIds[0], currentIdx, arrVarTokenId); } obj[currentIdx] = val; await this.ui.updateMemory(this.scopeStack, arrName, 'write', currentIdx); } result = obj.length; await this.ui.animateReturnHeader(arrName, result, node.domIds); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; } 
+                    else if (method === 'pop') { const lastIndex = obj.length - 1; const val = obj[lastIndex]; await this.ui.animateRead(arrName, val, node.domIds, lastIndex, arrVarTokenId); await this.ui.animateArrayPop(arrName, lastIndex); result = obj.pop(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
+                    else if (method === 'splice') { const start = argValues[0]; const count = argValues[1] || 0; const removedItems = obj.slice(start, start + count); if (removedItems.length > 0) { const indicesToHighlight = []; for(let i=0; i<count; i++) indicesToHighlight.push(start + i); await this.ui.highlightArrayElements(arrName, indicesToHighlight, 'delete'); await this.ui.wait(500); await this.ui.animateSpliceRead(arrName, removedItems, node.domIds, start); } result = obj.splice(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
+                    else if (method === 'slice') { const start = argValues.length > 0 ? argValues[0] : 0; const normalizedStart = typeof start === 'number' && start < 0 ? Math.max(obj.length + start, 0) : (start || 0); result = obj.slice(...argValues); if (result.length > 0) { await this.ui.animateSpliceRead(arrName, result, node.domIds, normalizedStart); } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
                     if (method === 'shift') {
                         if (obj.length === 0) {
                             result = undefined;
                         } else {
                             const originalLength = obj.length;
                             const firstVal = obj[0];
-                            await this.ui.animateRead(arrName, firstVal, node.domIds[0], 0, arrVarTokenId);
+                            await this.ui.animateRead(arrName, firstVal, node.domIds, 0, arrVarTokenId);
                             for (let index = 1; index < originalLength; index++) {
                                 obj[index - 1] = obj[index];
                                 await this.ui.updateMemory(this.scopeStack, arrName, 'none', index - 1, false);
@@ -928,14 +924,7 @@ export class Interpreter {
                             result = firstVal;
                             await this.ui.updateMemory(this.scopeStack, arrName, 'write');
                         }
-                        this.ui.replaceTokenText(node.domIds[0], result, true);
-                        for(let i=1; i<node.domIds.length; i++) {
-                            const el = document.getElementById(node.domIds[i]);
-                            if(el) {
-                                if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true});
-                                el.style.display = 'none';
-                            }
-                        }
+                        await this.ui.animateOperationCollapse(node.domIds, result);
                         await this.ui.wait(800);
                         return result;
                     }
@@ -962,15 +951,8 @@ export class Interpreter {
                             }
                         }
                         result = obj.length;
-                        await this.ui.animateReturnHeader(arrName, result, node.domIds[0]);
-                        this.ui.replaceTokenText(node.domIds[0], result, true);
-                        for(let i=1; i<node.domIds.length; i++) {
-                            const el = document.getElementById(node.domIds[i]);
-                            if(el) {
-                                if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true});
-                                el.style.display = 'none';
-                            }
-                        }
+                        await this.ui.animateReturnHeader(arrName, result, node.domIds);
+                        await this.ui.animateOperationCollapse(node.domIds, result);
                         await this.ui.wait(800);
                         return result;
                     }
