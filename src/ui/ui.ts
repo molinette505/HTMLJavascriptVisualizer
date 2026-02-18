@@ -114,7 +114,7 @@ const valueToCodePreviewText = (value, initialized = true, functionAlias = null)
 };
 
 const getCodePreviewTypeLabel = (snapshot) => {
-    if (!snapshot || snapshot.initialized === false) return 'uninitialized';
+    if (!snapshot || snapshot.initialized === false) return 'undefined';
     return getMemoryTypeLabel(snapshot.value, true);
 };
 
@@ -1367,6 +1367,11 @@ export const ui = {
         const box = document.getElementById('console-output');
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
+        div.classList.add('console-flash');
+        const duration = Math.max(200, Math.round(600 / Math.max(0.1, ui.speedMultiplier || 1)));
+        window.setTimeout(() => {
+            div.classList.remove('console-flash');
+        }, duration);
     },
     renderError: async (errorObj = {}) => {
         if (ui.isStopping) return;
@@ -1550,12 +1555,12 @@ export const ui = {
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
         const visibleScopes = scopeStack.filter((scope) => {
-            const names = Object.keys(scope.variables).filter((name) => name !== 'document');
+            const names = Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false);
             return names.length > 0 || scope.name === 'Global';
         });
         const arrayOwners = new Map();
         visibleScopes.forEach((scope) => {
-            Object.keys(scope.variables).filter((name) => name !== 'document').forEach((name) => {
+            Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false).forEach((name) => {
                 const currentValue = scope.variables[name].value;
                 if (Array.isArray(currentValue)) {
                     const heapId = ui.getHeapId(currentValue);
@@ -1613,10 +1618,10 @@ export const ui = {
                 scopeDiv.appendChild(titleDiv); const varsContainer = document.createElement('div'); varsContainer.id = `scope-vars-${scope.id}`; scopeDiv.appendChild(varsContainer); container.appendChild(scopeDiv);
             }
             const varsContainer = document.getElementById(`scope-vars-${scope.id}`);
-            const activeVarNames = new Set(Object.keys(scope.variables).filter((name) => name !== 'document'));
+            const activeVarNames = new Set(Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false));
             Array.from(varsContainer.children).forEach(child => { if (!activeVarNames.has(child.getAttribute('data-var-name'))) child.remove(); });
 
-            Object.keys(scope.variables).filter((name) => name !== 'document').forEach(name => {
+            Object.keys(scope.variables).filter((name) => name !== 'document' && scope.variables[name].initialized !== false).forEach(name => {
                 const v = scope.variables[name]; const groupId = `mem-group-${scope.id}-${name}`; let groupDiv = document.getElementById(groupId);
                 ui.currentMemoryVarSnapshot.set(name, {
                     value: v.value,
@@ -1626,9 +1631,7 @@ export const ui = {
                 if (!groupDiv) { groupDiv = document.createElement('div'); groupDiv.id = groupId; groupDiv.className = 'memory-group'; groupDiv.setAttribute('data-var-name', name); groupDiv.classList.add('cell-entry'); varsContainer.appendChild(groupDiv); }
                 const shouldFlash = (name === flashVarName && flashType !== 'none' && flashIndex === null);
                 let valStr;
-                if (v.initialized === false) {
-                    valStr = 'uninitialized';
-                } else if (Array.isArray(v.value)) {
+                if (Array.isArray(v.value)) {
                     const heapId = ui.getHeapId(v.value);
                     const owner = heapId ? arrayOwners.get(heapId) : null;
                     valStr = (owner && owner !== name) ? `ref ${owner}` : `Array(${v.value.length})`;
@@ -1638,7 +1641,7 @@ export const ui = {
                 } else {
                     valStr = valueToVisualText(v.value);
                 }
-                const valueType = (v.initialized === false) ? 'uninitialized' : getMemoryTypeLabel(v.value, true);
+                const valueType = getMemoryTypeLabel(v.value, true);
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
                 const topValueId = Array.isArray(v.value) ? `mem-header-${name}` : `mem-val-${name}`;

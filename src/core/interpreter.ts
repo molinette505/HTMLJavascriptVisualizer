@@ -910,8 +910,70 @@ export class Interpreter {
                     else if (method === 'pop') { const lastIndex = obj.length - 1; const val = obj[lastIndex]; await this.ui.animateRead(arrName, val, node.domIds[0], lastIndex, arrVarTokenId); await this.ui.animateArrayPop(arrName, lastIndex); result = obj.pop(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
                     else if (method === 'splice') { const start = argValues[0]; const count = argValues[1] || 0; const removedItems = obj.slice(start, start + count); if (removedItems.length > 0) { const indicesToHighlight = []; for(let i=0; i<count; i++) indicesToHighlight.push(start + i); await this.ui.highlightArrayElements(arrName, indicesToHighlight, 'delete'); await this.ui.wait(500); await this.ui.animateSpliceRead(arrName, removedItems, node.domIds[0], start); } result = obj.splice(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); const resultStr = `[${result.map(v => JSON.stringify(v)).join(', ')}]`; this.ui.setRawTokenText(node.domIds[0], resultStr, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
                     else if (method === 'slice') { const start = argValues.length > 0 ? argValues[0] : 0; const normalizedStart = typeof start === 'number' && start < 0 ? Math.max(obj.length + start, 0) : (start || 0); result = obj.slice(...argValues); if (result.length > 0) { await this.ui.animateSpliceRead(arrName, result, node.domIds[0], normalizedStart); } const resultStr = `[${result.map(v => JSON.stringify(v)).join(', ')}]`; this.ui.setRawTokenText(node.domIds[0], resultStr, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
-                    if (method === 'shift') { const firstVal = obj[0]; await this.ui.animateRead(arrName, firstVal, node.domIds[0], 0, arrVarTokenId); result = obj.shift(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
-                    if (method === 'unshift') { result = obj.unshift(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); if(node.args.length>0) await this.ui.animateAssignment(arrName, argValues[0], node.args[0].domIds[0], 0, arrVarTokenId); await this.ui.animateReturnHeader(arrName, result, node.domIds[0]); this.ui.replaceTokenText(node.domIds[0], result, true); for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await this.ui.wait(800); return result; }
+                    if (method === 'shift') {
+                        if (obj.length === 0) {
+                            result = undefined;
+                        } else {
+                            const originalLength = obj.length;
+                            const firstVal = obj[0];
+                            await this.ui.animateRead(arrName, firstVal, node.domIds[0], 0, arrVarTokenId);
+                            for (let index = 1; index < originalLength; index++) {
+                                obj[index - 1] = obj[index];
+                                await this.ui.updateMemory(this.scopeStack, arrName, 'none', index - 1, false);
+                            }
+                            obj[originalLength - 1] = undefined;
+                            await this.ui.updateMemory(this.scopeStack, arrName, 'none', originalLength - 1, false);
+                            await this.ui.animateArrayPop(arrName, originalLength - 1);
+                            obj.pop();
+                            result = firstVal;
+                            await this.ui.updateMemory(this.scopeStack, arrName, 'write');
+                        }
+                        this.ui.replaceTokenText(node.domIds[0], result, true);
+                        for(let i=1; i<node.domIds.length; i++) {
+                            const el = document.getElementById(node.domIds[i]);
+                            if(el) {
+                                if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true});
+                                el.style.display = 'none';
+                            }
+                        }
+                        await this.ui.wait(800);
+                        return result;
+                    }
+                    if (method === 'unshift') {
+                        const insertCount = argValues.length;
+                        if (insertCount > 0) {
+                            const originalLength = obj.length;
+                            for (let i = 0; i < insertCount; i++) obj.push(undefined);
+                            await this.ui.updateMemory(this.scopeStack, arrName, 'none', originalLength, false);
+                            await this.ui.wait(90);
+                            for (let index = originalLength - 1; index >= 0; index--) {
+                                obj[index + insertCount] = obj[index];
+                                await this.ui.updateMemory(this.scopeStack, arrName, 'none', index + insertCount, false);
+                            }
+                            for (let index = 0; index < insertCount; index++) {
+                                obj[index] = undefined;
+                            }
+                            await this.ui.updateMemory(this.scopeStack, arrName, 'none', 0, false);
+                            for (let index = 0; index < insertCount; index++) {
+                                const sourceTokenId = (node.args[index] && node.args[index].domIds) ? this.getExpressionDisplayTokenId(node.args[index]) : null;
+                                if (sourceTokenId) await this.ui.animateAssignment(arrName, argValues[index], sourceTokenId, index, arrVarTokenId);
+                                obj[index] = argValues[index];
+                                await this.ui.updateMemory(this.scopeStack, arrName, 'write', index, false);
+                            }
+                        }
+                        result = obj.length;
+                        await this.ui.animateReturnHeader(arrName, result, node.domIds[0]);
+                        this.ui.replaceTokenText(node.domIds[0], result, true);
+                        for(let i=1; i<node.domIds.length; i++) {
+                            const el = document.getElementById(node.domIds[i]);
+                            if(el) {
+                                if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true});
+                                el.style.display = 'none';
+                            }
+                        }
+                        await this.ui.wait(800);
+                        return result;
+                    }
                     if (result !== undefined) return result;
                 }
                 if (typeof obj === 'string') {
