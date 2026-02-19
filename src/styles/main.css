@@ -653,7 +653,7 @@
         /* --- MEMORY & CONSOLE --- */
         #memory-container { 
             flex: 1; padding: 0 15px 60px 15px; overflow-y: auto; 
-            font-size: 14px; display: flex; flex-direction: column; gap: 12px; 
+            font-size: 14px; display: flex; flex-direction: column; gap: 12px; position: relative;
         }
         @media (min-width: 800px) { #memory-container { padding-bottom: 15px; } }
         #memory-container > .memory-scope:first-child { margin-top: 15px; }
@@ -679,6 +679,54 @@
         }
         .mem-name { color: var(--code-var); font-weight: bold; font-family: monospace; }
         .mem-val { display: block; width: 100%; max-width: 100%; text-align: center; align-self: center; color: var(--code-string); font-family: monospace; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35; }
+        .memory-array-portal {
+            position: absolute;
+            inset: 0;
+            z-index: 45;
+            pointer-events: none;
+            padding: 10px;
+            background: rgba(8, 12, 28, 0.62);
+            backdrop-filter: blur(1px) saturate(1.1);
+            animation: memoryPortalIn calc(0.22s * var(--time-scale)) cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+        }
+        .memory-array-portal.is-closing {
+            animation: memoryPortalOut calc(0.18s * var(--time-scale)) ease-in forwards;
+        }
+        .memory-array-portal-panel {
+            position: absolute;
+            left: 10px;
+            right: 10px;
+            width: 100%;
+            max-height: min(84%, 460px);
+            overflow: auto;
+            border: 1px solid rgba(129, 140, 248, 0.75);
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(37, 52, 88, 0.95), rgba(11, 20, 43, 0.97));
+            box-shadow: 0 14px 28px rgba(7, 10, 24, 0.72), 0 0 0 1px rgba(129, 140, 248, 0.25);
+            animation: memoryPortalPanelIn calc(0.24s * var(--time-scale)) cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+        }
+        .memory-array-portal.is-closing .memory-array-portal-panel {
+            animation: memoryPortalPanelOut calc(0.18s * var(--time-scale)) ease-in forwards;
+        }
+        .memory-array-portal-title {
+            padding: 8px 12px;
+            font-size: 0.8em;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #dbeafe;
+            border-bottom: 1px solid rgba(165, 180, 252, 0.35);
+            background: rgba(49, 62, 112, 0.88);
+            font-family: var(--code-font-family);
+            font-weight: 700;
+        }
+        .memory-array-portal-row {
+            padding-left: 12px !important;
+            background: rgba(8, 16, 35, 0.66) !important;
+        }
+        .memory-array-portal-row.portal-target {
+            box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.85);
+            background: rgba(67, 94, 175, 0.33) !important;
+        }
         .console-box { flex: 1; background: #000; overflow-y: auto; padding: 10px; font-family: var(--code-font-family); color: #dcdfe4; font-size: 13px; }
         .log-entry { padding: 6px 8px; border-bottom: 1px solid #222; word-wrap: break-word; line-height: 1.4; transition: background 0.3s; border-radius: 6px; margin-bottom: 4px; }
         .log-console-entry { color: #dbe2ec; }
@@ -881,6 +929,10 @@
         @keyframes flashConsole { 0% { background: rgba(255, 255, 255, 0.15); } 100% { background: transparent; } }
         @keyframes flowLineDash { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -36; } }
         @keyframes flowLinePulse { from { opacity: 0.16; } to { opacity: 0.28; } }
+        @keyframes memoryPortalIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes memoryPortalOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes memoryPortalPanelIn { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes memoryPortalPanelOut { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(8px) scale(0.985); } }
 
         @keyframes domPulse {
             0% { transform: scale(0.98); }

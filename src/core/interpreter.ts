@@ -296,6 +296,20 @@ export class Interpreter {
         }
         return domIds[0];
     }
+    getMemberPropertyTokenId(node) {
+        if (!node || !node.domIds || node.domIds.length === 0) return null;
+        if (node.computed) return null;
+        return node.domIds[node.domIds.length - 1];
+    }
+    setMemberPropertyHoverSnapshot(node, value) {
+        if (!node || !node.property || typeof this.ui.setCodePropertySnapshot !== 'function') return;
+        const tokenId = this.getMemberPropertyTokenId(node);
+        if (!tokenId) return;
+        const propertyName = (node.property && Object.prototype.hasOwnProperty.call(node.property, 'value'))
+            ? String(node.property.value)
+            : 'property';
+        this.ui.setCodePropertySnapshot(tokenId, propertyName, value);
+    }
     findScopeForVariable(name, scope = this.currentScope) {
         if (!scope) return null;
         if (scope.variables && Object.prototype.hasOwnProperty.call(scope.variables, name)) return scope;
@@ -806,6 +820,7 @@ export class Interpreter {
             }
             const prop = node.computed ? await this.evaluate(node.property) : node.property.value;
             if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) {
+                this.setMemberPropertyHoverSnapshot(node, obj.length);
                 await this.ui.animateReadHeader(node.object.name, obj.length, node.domIds);
                 await this.ui.animateOperationCollapse(node.domIds, obj.length);
                 await this.ui.wait(800);
@@ -813,6 +828,7 @@ export class Interpreter {
             }
             if (Array.isArray(obj) && node.object instanceof Identifier) {
                 const val = obj[prop];
+                this.setMemberPropertyHoverSnapshot(node, val);
                 const sourceVarTokenId = this.getIdentifierTokenId(node.object.domIds, node.object.name);
                 const sourceIndexTokenId = (node.computed && node.property)
                     ? this.getExpressionDisplayTokenId(node.property)
@@ -824,6 +840,7 @@ export class Interpreter {
             }
             if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) {
                 const len = obj.length;
+                this.setMemberPropertyHoverSnapshot(node, len);
                 await this.ui.animateRead(node.object.name, len, node.domIds);
                 await this.ui.animateOperationCollapse(node.domIds, len);
                 await this.ui.wait(800);
@@ -831,6 +848,7 @@ export class Interpreter {
             }
             if (typeof obj === 'string' && node.object instanceof Identifier) {
                 const val = obj[prop];
+                this.setMemberPropertyHoverSnapshot(node, val);
                 if (typeof val === 'function') return val.bind(obj);
                 await this.ui.animateRead(node.object.name, val, node.domIds);
                 await this.ui.animateOperationCollapse(node.domIds, val);
@@ -839,6 +857,7 @@ export class Interpreter {
             }
             if (isVirtualDomValue(obj)) {
                 const domValue = obj[prop];
+                this.setMemberPropertyHoverSnapshot(node, domValue);
                 if (typeof domValue === 'function') return domValue.bind(obj);
                 if (node.domIds && node.domIds.length > 0) {
                     if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, node.domIds[0], domValue, node.domIds, prop);
@@ -847,7 +866,9 @@ export class Interpreter {
                 }
                 return domValue;
             }
-            return obj[prop];
+            const genericValue = obj[prop];
+            this.setMemberPropertyHoverSnapshot(node, genericValue);
+            return genericValue;
         }
         if (node instanceof UpdateExpr) { const name = node.arg.name; const currentVal = this.currentScope.get(name).value; const isInc = node.op === '++'; const newVal = isInc ? currentVal + 1 : currentVal - 1; const varTokenId = this.getIdentifierTokenId(node.arg.domIds, name); await this.ui.animateRead(name, currentVal, node.arg.domIds[0]); if (node.prefix) { await this.ui.animateOperationCollapse(node.domIds, newVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0], null, varTokenId); await this.ui.updateMemory(this.scopeStack, name, 'write'); return newVal; } else { await this.ui.animateOperationCollapse(node.domIds, currentVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0], null, varTokenId); await this.ui.updateMemory(this.scopeStack, name, 'write'); return currentVal; } }
         if (node instanceof TernaryExpr) { const condition = await this.evaluate(node.test); const result = condition ? await this.evaluate(node.consequent) : await this.evaluate(node.alternate); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
