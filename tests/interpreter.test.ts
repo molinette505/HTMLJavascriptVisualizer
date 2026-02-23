@@ -245,6 +245,42 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'resultat')).toBe(10);
   });
 
+  it('supporte les returns multiples avec early exit', async () => {
+    const interpreter = await runProgram(`
+      function verifierAcces(age) {
+        if (age < 18) {
+          return "Acces refuse : Trop jeune.";
+        }
+        return "Bienvenue dans l'espace membre !";
+      }
+      let mineur = verifierAcces(17);
+      let majeur = verifierAcces(18);
+    `);
+    expect(getGlobalValue(interpreter, 'mineur')).toBe('Acces refuse : Trop jeune.');
+    expect(getGlobalValue(interpreter, 'majeur')).toBe("Bienvenue dans l'espace membre !");
+  });
+
+  it('arrete bien la fonction apres un return imbrique', async () => {
+    const interpreter = await runProgram(`
+      function test(n) {
+        if (n < 0) {
+          return "negatif";
+        }
+        let x = 1;
+        if (n === 0) {
+          return "zero";
+        }
+        return "positif";
+      }
+      let a = test(-2);
+      let b = test(0);
+      let c = test(3);
+    `);
+    expect(getGlobalValue(interpreter, 'a')).toBe('negatif');
+    expect(getGlobalValue(interpreter, 'b')).toBe('zero');
+    expect(getGlobalValue(interpreter, 'c')).toBe('positif');
+  });
+
   it('hoiste les declarations de fonction (appel avant declaration)', async () => {
     const interpreter = await runProgram(`
       let resultat = saluer();

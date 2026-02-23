@@ -598,6 +598,14 @@ export class Interpreter {
         }
         else if (node instanceof SwitchStmt) { await this.pause(node.line); const disc = await this.evaluate(node.discriminant); let start=-1; let def=-1; for(let i=0;i<node.cases.length;i++){ const c=node.cases[i]; if(c.test){ await this.pause(c.line); const tv=await this.evaluate(c.test); const v1=JSON.stringify(formatValue(disc)); const v2=JSON.stringify(formatValue(tv)); const compStr=`${v1} === ${v2}`; if(c.test.domIds.length>0){ this.ui.setRawTokenText(c.test.domIds[0], compStr, true); for(let k=1;k<c.test.domIds.length;k++){ const el=document.getElementById(c.test.domIds[k]); if(el){ if(!this.ui.modifiedTokens.has(c.test.domIds[k])) this.ui.modifiedTokens.set(c.test.domIds[k], {original:el.innerText, transient:true}); el.style.display='none'; } } } await this.ui.wait(800); const isMatch=(tv===disc); await this.ui.animateOperationCollapse(c.test.domIds, isMatch); await this.ui.wait(800); if(isMatch){ start=i; break; } } else { def=i; } } if(start===-1) start=def; if(start!==-1){ for(let i=start; i<node.cases.length; i++){ const c=node.cases[i]; for(const s of c.consequent){ const res=await this.execute(s); if(res==='BREAK') return; if(res&&res.__isReturn) return res; } } } }
         else if (node instanceof BreakStmt) { await this.pause(node.line); return 'BREAK'; }
+        else if (node instanceof ReturnStmt) {
+            await this.pause(node.line);
+            const value = node.argument ? await this.evaluate(node.argument) : undefined;
+            const sourceId = (node.argument && node.argument.domIds && node.argument.domIds.length > 0)
+                ? this.getExpressionDisplayTokenId(node.argument)
+                : ((node.domIds && node.domIds.length > 0) ? node.domIds[0] : null);
+            return { __isReturn: true, value, sourceId };
+        }
         else if (node instanceof FunctionDecl) { await this.pause(node.line); this.functions[node.name] = node; }
     }
 
@@ -1347,14 +1355,10 @@ export class Interpreter {
                     let returnSourceId = null;
                     const body = funcNode.body;
                     if (body instanceof BlockStmt) {
-                        for(const stmt of body.body) {
-                            if (stmt instanceof ReturnStmt) {
-                                await this.pause(stmt.line);
-                                result = stmt.argument ? await this.evaluate(stmt.argument) : undefined;
-                                returnSourceId = (stmt.argument && stmt.argument.domIds.length > 0) ? stmt.argument.domIds[0] : stmt.domIds[0];
-                                break;
-                            }
-                            await this.execute(stmt);
+                        const blockResult = await this.executeBlock(body.body);
+                        if (blockResult && blockResult.__isReturn) {
+                            result = blockResult.value;
+                            returnSourceId = blockResult.sourceId || null;
                         }
                     } else {
                         await this.pause(node.line);
