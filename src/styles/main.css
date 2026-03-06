@@ -12,6 +12,7 @@
             --mem-cell: #1e293b;
             --mem-header-bg: #273549; 
             --mem-array-bg: #0f172a; 
+            --mem-name-col-width: 140px;
 
             --ui-scale: 14px; 
             --content-scale: 15px; 
@@ -54,7 +55,7 @@
             justify-content: space-between;
             padding: 0 10px;
             gap: 10px;
-            z-index: 50;
+            z-index: 300;
             flex-shrink: 0; 
             box-shadow: 0 2px 10px rgba(0,0,0,0.2);
             width: 100%;
@@ -151,6 +152,18 @@
             cursor: pointer;
             font-weight: bold;
         }
+        .event-popup .toggle-btn {
+            background: rgba(15, 23, 42, 0.55);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 0 8px;
+        }
+        .event-popup .toggle-btn.is-on {
+            background: var(--accent);
+            color: #ffffff;
+            border-color: #60a5fa;
+            box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.35);
+        }
         .event-popup button.btn-secondary {
             background: transparent;
             border: 1px solid var(--border);
@@ -161,6 +174,26 @@
             flex-direction: column;
             align-items: stretch;
             width: 270px;
+        }
+        .options-popup {
+            left: 8px;
+            right: auto;
+            flex-direction: column;
+            align-items: stretch;
+            width: 250px;
+        }
+        .option-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 2px 0;
+            color: var(--text-main);
+            font-size: 12px;
+        }
+        .option-row .toggle-btn {
+            min-width: 50px;
+            flex-shrink: 0;
         }
         .load-label {
             color: var(--text-dim);
@@ -659,11 +692,25 @@
         #memory-container > .memory-scope:first-child { margin-top: 15px; }
         .memory-scope { border: 1px solid var(--border); border-radius: 8px; background: var(--mem-cell); position: relative; overflow: clip; }
         .scope-title { padding: 8px 12px; margin: 0; background: var(--mem-header-bg); border-bottom: 1px solid var(--border); font-size: 0.8em; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 20; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-        .memory-cell { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start; min-height: 36px; background: var(--mem-cell); scroll-margin-top: 100px; }
+        .memory-cell { display: grid; gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: start; min-height: 36px; background: var(--mem-cell); scroll-margin-top: 100px; }
+        .memory-cell.has-meta { grid-template-columns: max-content var(--mem-name-col-width) minmax(0, 1fr); }
+        .memory-cell.no-meta { grid-template-columns: var(--mem-name-col-width) minmax(0, 1fr); }
         .memory-cell.sticky-var { position: sticky; top: 36px; z-index: 15; background: var(--mem-cell); border-bottom: 1px solid var(--accent); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         .memory-cell.array-element { background-color: var(--mem-array-bg); padding-left: 28px; }
+        .memory-cell.array-element.array-cell-focus {
+            background-color: rgba(59, 130, 246, 0.2);
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
+        }
         .memory-cell.array-element .mem-name { color: #64748b; font-weight: normal; font-size: 0.9em; }
-        .mem-meta { display: inline-flex; align-items: center; min-width: 58px; }
+        .mem-meta { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+        .mem-addr {
+            color: #64748b;
+            font-size: 0.78em;
+            font-family: monospace;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
         .mem-type {
             color: #e0f2fe;
             font-size: 0.8em;
@@ -677,8 +724,30 @@
             line-height: 1.1;
             text-transform: lowercase;
         }
-        .mem-name { color: var(--code-var); font-weight: bold; font-family: monospace; }
-        .mem-val { display: block; width: 100%; max-width: 100%; text-align: center; align-self: center; color: var(--code-string); font-family: monospace; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35; }
+        .mem-name {
+            color: var(--code-var);
+            font-weight: bold;
+            font-family: monospace;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            align-self: center;
+        }
+        .mem-val {
+            display: inline-block;
+            width: fit-content;
+            max-width: 100%;
+            justify-self: center;
+            text-align: center;
+            align-self: center;
+            color: var(--code-string);
+            font-family: monospace;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            line-height: 1.35;
+        }
         .memory-array-portal {
             position: absolute;
             inset: 0;

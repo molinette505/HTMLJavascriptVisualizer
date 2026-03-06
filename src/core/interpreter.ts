@@ -334,10 +334,31 @@ export class Interpreter {
     }
     getCallReplacementTokenId(callNode) {
         if (!callNode) return null;
-        if (callNode.callee && callNode.callee.domIds && callNode.callee.domIds.length > 0) {
-            return callNode.callee.domIds[callNode.callee.domIds.length - 1];
+        const domIds = (callNode.domIds && callNode.domIds.length > 0)
+            ? callNode.domIds
+            : ((callNode.callee && callNode.callee.domIds) ? callNode.callee.domIds : []);
+        if (!domIds || domIds.length === 0) return null;
+        if (typeof document === 'undefined') return domIds[Math.floor(domIds.length / 2)] || domIds[0];
+        const visible = domIds
+            .map((tokenId) => document.getElementById(tokenId))
+            .filter((tokenEl) => tokenEl && tokenEl.style.display !== 'none');
+        if (visible.length === 0) return domIds[0];
+        if (visible.length === 1) return visible[0].id;
+        const rectData = visible.map((tokenEl) => ({ tokenEl, rect: tokenEl.getBoundingClientRect() }));
+        const minLeft = Math.min(...rectData.map((entry) => entry.rect.left));
+        const maxRight = Math.max(...rectData.map((entry) => entry.rect.right));
+        const centerX = (minLeft + maxRight) / 2;
+        let best = rectData[0];
+        let bestDistance = Math.abs((best.rect.left + best.rect.width / 2) - centerX);
+        for (let index = 1; index < rectData.length; index++) {
+            const candidate = rectData[index];
+            const candidateDistance = Math.abs((candidate.rect.left + candidate.rect.width / 2) - centerX);
+            if (candidateDistance < bestDistance) {
+                best = candidate;
+                bestDistance = candidateDistance;
+            }
         }
-        return (callNode.domIds && callNode.domIds.length > 0) ? callNode.domIds[0] : null;
+        return best.tokenEl.id;
     }
     isDomNodeVisible(node) {
         if (!node) return false;
@@ -1030,8 +1051,10 @@ export class Interpreter {
                             }
                             this.refreshDomView();
                             if (domOwnerName && domOwnerName !== 'document') await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write');
-                            this.ui.replaceTokenText(node.domIds[0], result, true);
-                            this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                            const callTargetTokenId = this.getCallReplacementTokenId(node);
+                            node.resultTokenId = callTargetTokenId;
+                            this.ui.replaceTokenText(callTargetTokenId, result, true);
+                            this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                             await this.ui.wait(800);
                             return result;
                         }
@@ -1072,8 +1095,10 @@ export class Interpreter {
                             }
                             this.refreshDomView();
                             if (domOwnerName && domOwnerName !== 'document') await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write');
-                            this.ui.replaceTokenText(node.domIds[0], result, true);
-                            this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                            const callTargetTokenId = this.getCallReplacementTokenId(node);
+                            node.resultTokenId = callTargetTokenId;
+                            this.ui.replaceTokenText(callTargetTokenId, result, true);
+                            this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                             await this.ui.wait(800);
                             return result;
                         }
@@ -1094,8 +1119,10 @@ export class Interpreter {
                                     if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
                                 }
                                 this.refreshDomView();
-                                this.ui.replaceTokenText(node.domIds[0], result, true);
-                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                                 await this.ui.wait(800);
                                 return result;
                             }
@@ -1114,8 +1141,10 @@ export class Interpreter {
                                     if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
                                 }
                                 this.refreshDomView();
-                                this.ui.replaceTokenText(node.domIds[0], result, true);
-                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                                 await this.ui.wait(800);
                                 return result;
                             }
@@ -1173,8 +1202,10 @@ export class Interpreter {
                                 }
                                 this.refreshDomView();
                                 if (arrName && arrName !== 'document') await this.ui.updateMemory(this.scopeStack, arrName, 'write');
-                                this.ui.replaceTokenText(node.domIds[0], result, true);
-                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                                 await this.ui.wait(800);
                                 return result;
                             }
@@ -1210,8 +1241,10 @@ export class Interpreter {
                                 }
                                 this.refreshDomView();
                                 if (arrName && arrName !== 'document') await this.ui.updateMemory(this.scopeStack, arrName, 'write');
-                                this.ui.replaceTokenText(node.domIds[0], result, true);
-                                this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                                 await this.ui.wait(800);
                                 return result;
                             }
@@ -1232,8 +1265,10 @@ export class Interpreter {
                             result = obj[method](...argValues);
                             this.refreshDomView();
                             if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, null, result);
-                            this.ui.replaceTokenText(node.domIds[0], result, true);
-                            this.collapseExpressionTokens(node.domIds, node.domIds[0]);
+                            const callTargetTokenId = this.getCallReplacementTokenId(node);
+                            node.resultTokenId = callTargetTokenId;
+                            this.ui.replaceTokenText(callTargetTokenId, result, true);
+                            this.collapseExpressionTokens(node.domIds, callTargetTokenId);
                             await this.ui.wait(800);
                             return result;
                         }

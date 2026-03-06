@@ -127,6 +127,21 @@ const getMemoryTypeLabel = (value, hasOwnValue = true) => {
     return typeof value;
 };
 
+const buildMemoryMetaHtml = ({ typeLabel = '', address = '', showType = false, showAddress = false }) => {
+    const parts = [];
+    if (showAddress && address) parts.push(`<span class="mem-addr">${escapeHtml(address)}</span>`);
+    if (showType && typeLabel) parts.push(`<span class="mem-type">${escapeHtml(typeLabel)}</span>`);
+    return parts.length > 0 ? `<span class="mem-meta">${parts.join('')}</span>` : '';
+};
+
+const applyToggleButtonState = (button, isOn) => {
+    if (!button) return;
+    button.innerText = isOn ? 'ON' : 'OFF';
+    button.classList.toggle('is-on', isOn);
+    button.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+    button.setAttribute('data-state', isOn ? 'on' : 'off');
+};
+
 const truncateConsoleText = (value, max = 140) => {
     const text = String(value);
     if (text.length <= max) return text;
@@ -533,12 +548,16 @@ export const ui = {
     memoryDomTooltipAnchorEl: null,
     memoryDomTooltipBound: false,
     memoryArrayPortalEl: null,
+    memoryArrayPortalCleanup: null,
     codeValueTooltipEl: null,
     codeValueTooltipAnchorEl: null,
     codeValueTooltipBound: false,
     domDocument: null,
     domViewMode: 'tree',
     showFlowLine: true,
+    showMemoryTypes: false,
+    showMemoryAddresses: false,
+    lastScopeStack: null,
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
     speedIndex: 3, 
@@ -550,13 +569,75 @@ export const ui = {
     },
     updateFlowLineControl: () => {
         const button = document.getElementById('btn-toggle-flow-line');
-        if (!button) return;
-        button.innerText = ui.showFlowLine ? 'ON' : 'OFF';
-        button.classList.toggle('is-on', ui.showFlowLine);
+        applyToggleButtonState(button, ui.showFlowLine);
+    },
+    updateMemoryTypesControl: () => {
+        const button = document.getElementById('btn-toggle-memory-types');
+        applyToggleButtonState(button, ui.showMemoryTypes);
+    },
+    updateMemoryAddressesControl: () => {
+        const button = document.getElementById('btn-toggle-memory-addresses');
+        applyToggleButtonState(button, ui.showMemoryAddresses);
+    },
+    updateDisplayOptionsControls: () => {
+        ui.updateFlowLineControl();
+        ui.updateMemoryTypesControl();
+        ui.updateMemoryAddressesControl();
+    },
+    refreshMemoryFromSnapshot: () => {
+        if (!ui.lastScopeStack) return;
+        ui.updateMemory(ui.lastScopeStack, null, 'none', null, false);
     },
     toggleFlowLine: () => {
         ui.showFlowLine = !ui.showFlowLine;
         ui.updateFlowLineControl();
+    },
+    toggleMemoryTypes: () => {
+        ui.showMemoryTypes = !ui.showMemoryTypes;
+        ui.updateMemoryTypesControl();
+        ui.refreshMemoryFromSnapshot();
+    },
+    toggleMemoryAddresses: () => {
+        ui.showMemoryAddresses = !ui.showMemoryAddresses;
+        ui.updateMemoryAddressesControl();
+        ui.refreshMemoryFromSnapshot();
+    },
+    hideOptionsPopup: () => {
+        const popup = document.getElementById('options-popup');
+        if (popup) popup.classList.remove('visible');
+    },
+    positionOptionsPopup: () => {
+        const popup = document.getElementById('options-popup');
+        const optionsButton = document.getElementById('btn-options');
+        const toolbar = document.querySelector('.toolbar');
+        if (!popup || !optionsButton || !toolbar) return;
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const buttonRect = optionsButton.getBoundingClientRect();
+        const popupRect = popup.getBoundingClientRect();
+        const popupWidth = popupRect.width || popup.offsetWidth || 250;
+        const buttonCenter = (buttonRect.left - toolbarRect.left) + (buttonRect.width / 2);
+        const minLeft = 8;
+        const maxLeft = Math.max(minLeft, toolbar.clientWidth - popupWidth - 8);
+        const alignedLeft = Math.max(minLeft, Math.min(maxLeft, buttonCenter - (popupWidth / 2)));
+        popup.style.right = 'auto';
+        popup.style.left = `${alignedLeft}px`;
+    },
+    toggleOptionsPopup: (forceOpen = null) => {
+        const popup = document.getElementById('options-popup');
+        if (!popup) return;
+        const shouldOpen = forceOpen === null ? !popup.classList.contains('visible') : Boolean(forceOpen);
+        if (!shouldOpen) {
+            popup.classList.remove('visible');
+            return;
+        }
+        const eventPopup = document.getElementById('event-popup');
+        const loadPopup = document.getElementById('load-popup');
+        if (eventPopup) eventPopup.classList.remove('visible');
+        if (loadPopup) loadPopup.classList.remove('visible');
+        popup.classList.add('visible');
+        ui.updateDisplayOptionsControls();
+        window.requestAnimationFrame(ui.positionOptionsPopup);
+        window.requestAnimationFrame(ui.positionOptionsPopup);
     },
     initCodeValueTooltip: () => {
         if (ui.codeValueTooltipBound) return;
@@ -684,6 +765,10 @@ export const ui = {
         });
     },
     hideMemoryArrayPortal: () => {
+        if (typeof ui.memoryArrayPortalCleanup === 'function') {
+            ui.memoryArrayPortalCleanup();
+        }
+        ui.memoryArrayPortalCleanup = null;
         if (!ui.memoryArrayPortalEl) return;
         const portal = ui.memoryArrayPortalEl;
         ui.memoryArrayPortalEl = null;
@@ -719,8 +804,14 @@ export const ui = {
                 ? 'empty'
                 : (Array.isArray(item) ? `length=${item.length}` : valueToVisualText(item));
             const row = document.createElement('div');
-            row.className = 'memory-cell array-element memory-array-portal-row';
-            row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${index}]</span><span class="mem-val" data-portal-index="${index}">${escapeHtml(itemValue)}</span>`;
+            const metaHtml = buildMemoryMetaHtml({
+                typeLabel: itemType,
+                address: '',
+                showType: ui.showMemoryTypes,
+                showAddress: false
+            });
+            row.className = `memory-cell array-element memory-array-portal-row ${metaHtml ? 'has-meta' : 'no-meta'}`;
+            row.innerHTML = `${metaHtml}<span class="mem-name">[${index}]</span><span class="mem-val" data-portal-index="${index}">${escapeHtml(itemValue)}</span>`;
             if (targetIdx !== null && index === targetIdx) row.classList.add('portal-target');
             list.appendChild(row);
         }
@@ -744,6 +835,11 @@ export const ui = {
             }
             const clampedTop = Math.max(visibleTop, Math.min(visibleBottom, top));
             panel.style.top = `${clampedTop}px`;
+        };
+        const onContainerScroll = () => positionPanel();
+        container.addEventListener('scroll', onContainerScroll, { passive: true });
+        ui.memoryArrayPortalCleanup = () => {
+            container.removeEventListener('scroll', onContainerScroll);
         };
         window.requestAnimationFrame(positionPanel);
         window.requestAnimationFrame(positionPanel);
@@ -1660,6 +1756,7 @@ export const ui = {
 
     updateMemory: async (scopeStack, flashVarName = null, flashType = 'write', flashIndex = null, openDrawer = true) => {
         if(ui.isStopping) return;
+        ui.lastScopeStack = scopeStack;
         ui.initMemoryDomTooltip();
         ui.hideMemoryDomTooltip();
         ui.hideCodeValueTooltip();
@@ -1697,7 +1794,6 @@ export const ui = {
                 const valueId = isTopLevel ? `mem-val-${variableName}-${idx}` : `mem-val-${variableName}-${pathKey}`;
                 const row = document.createElement('div');
                 row.id = rowId;
-                row.className = 'memory-cell array-element';
                 if (!existingRowIds.has(rowId)) row.classList.add('cell-entry');
                 row.setAttribute('data-path', pathKey);
                 row.setAttribute('data-var-name', variableName);
@@ -1713,7 +1809,14 @@ export const ui = {
                 const itemType = getMemoryTypeLabel(item, hasValue);
                 const hasDomPreview = hasValue && isVirtualDomValue(item);
                 const previewAttrs = hasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${valueId}"` : '';
-                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(itemType)}</span></span><span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${escapeHtml(displayValue)}</span>`;
+                const metaHtml = buildMemoryMetaHtml({
+                    typeLabel: itemType,
+                    address: '',
+                    showType: ui.showMemoryTypes,
+                    showAddress: false
+                });
+                row.className = `memory-cell array-element ${metaHtml ? 'has-meta' : 'no-meta'}`;
+                row.innerHTML = `${metaHtml}<span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${escapeHtml(displayValue)}</span>`;
                 if (hasDomPreview) ui.memoryDomPreviewRefs.set(valueId, item);
                 if (variableName === flashVarName && isTopLevel && flashIndex === idx) {
                     if (flashType === 'insert' || flashType === 'delete') row.classList.add(`flash-${flashType}`);
@@ -1764,13 +1867,19 @@ export const ui = {
                 }
                 const valueType = getMemoryTypeLabel(v.value, true);
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
-                if (!row) { row = document.createElement('div'); row.id = rowId; row.className = 'memory-cell'; groupDiv.insertBefore(row, groupDiv.firstChild); }
+                if (!row) { row = document.createElement('div'); row.id = rowId; groupDiv.insertBefore(row, groupDiv.firstChild); }
                 const topValueId = Array.isArray(v.value) ? `mem-header-${name}` : `mem-val-${name}`;
                 const topHasDomPreview = isVirtualDomValue(v.value);
                 const topPreviewAttrs = topHasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${topValueId}"` : '';
-                row.innerHTML = `<span class="mem-meta"><span class="mem-type">${escapeHtml(valueType)}</span></span><span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${escapeHtml(valStr)}</span>`;
+                const metaHtml = buildMemoryMetaHtml({
+                    typeLabel: valueType,
+                    address: v.addr || '',
+                    showType: ui.showMemoryTypes,
+                    showAddress: ui.showMemoryAddresses
+                });
+                row.innerHTML = `${metaHtml}<span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${escapeHtml(valStr)}</span>`;
                 if (topHasDomPreview) ui.memoryDomPreviewRefs.set(topValueId, v.value);
-                row.className = 'memory-cell'; 
+                row.className = `memory-cell ${metaHtml ? 'has-meta' : 'no-meta'}`;
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
                 if(shouldFlash) { row.classList.add(`flash-${flashType}`); targetEl = row; }
                 if (Array.isArray(v.value) && !isArrayRef) {
@@ -1789,12 +1898,54 @@ export const ui = {
     },
 
     animateArrayPop: async (arrName, index) => { if (ui.skipMode) return; await ui.ensureDrawerOpen('memory'); const valSpan = document.getElementById(`mem-val-${arrName}-${index}`); if(valSpan && valSpan.parentElement) { valSpan.parentElement.classList.add('cell-remove'); await ui.wait(400); } },
-    highlightArrayElements: async (arrName, indices, type = 'delete') => { if(indices.length > 0) { await ui.ensureDrawerOpen('memory'); ui.ensureVisible(`mem-val-${arrName}-${indices[0]}`); } indices.forEach(i => { const el = document.getElementById(`mem-val-${arrName}-${i}`); if(el && el.parentElement) el.parentElement.classList.add(`flash-${type}`); }); },
+    highlightArrayElements: async (arrName, indices, type = 'delete') => {
+        if(indices.length > 0) {
+            await ui.ensureDrawerOpen('memory');
+            ui.ensureVisible(`mem-val-${arrName}-${indices[0]}`);
+        }
+        const touchedRows = [];
+        indices.forEach(i => {
+            const el = document.getElementById(`mem-val-${arrName}-${i}`);
+            const row = el && el.parentElement ? el.parentElement : null;
+            if (!row) return;
+            if (type) row.classList.add(`flash-${type}`);
+            row.classList.add('array-cell-focus');
+            touchedRows.push(row);
+        });
+        if (touchedRows.length > 0) {
+            window.setTimeout(() => {
+                touchedRows.forEach((row) => row.classList.remove('array-cell-focus'));
+            }, Math.max(320, Math.round(720 / Math.max(0.1, ui.speedMultiplier))));
+        }
+    },
     lockTokens: (ids) => ids.forEach(id => ui.lockedTokens.add(id)), unlockTokens: (ids) => ids.forEach(id => ui.lockedTokens.delete(id)),
     rememberTokenOriginal: (tokenId, el, isTransient = true) => {
         if (!ui.modifiedTokens.has(tokenId)) {
             ui.modifiedTokens.set(tokenId, { original: el.innerText, originalHtml: el.innerHTML, transient: isTransient });
         }
+    },
+    pickExpressionCollapseTarget: (elements) => {
+        if (!elements || elements.length === 0) return null;
+        if (elements.length === 1) return elements[0];
+        const rectData = elements.map((element) => ({
+            element,
+            rect: element.getBoundingClientRect()
+        }));
+        const minLeft = Math.min(...rectData.map((entry) => entry.rect.left));
+        const maxRight = Math.max(...rectData.map((entry) => entry.rect.right));
+        const expressionCenterX = (minLeft + maxRight) / 2;
+        let best = rectData[0];
+        let bestDistance = Math.abs((best.rect.left + best.rect.width / 2) - expressionCenterX);
+        for (let index = 1; index < rectData.length; index++) {
+            const candidate = rectData[index];
+            const candidateCenterX = candidate.rect.left + candidate.rect.width / 2;
+            const distance = Math.abs(candidateCenterX - expressionCenterX);
+            if (distance < bestDistance) {
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+        return best.element;
     },
     replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = valueToVisualText(newValue); el.classList.add('val-replacement'); } },
     setRawTokenText: (tokenId, text, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = text; el.classList.add('val-replacement'); } },
@@ -1900,6 +2051,8 @@ export const ui = {
         const { memEl, closePortal } = ui.resolveMemoryValueTarget(varName, index);
         if (memEl && memEl.id) ui.ensureVisible(memEl.id);
         if (!tokenEl || !memEl) { closePortal(); return; }
+        const arrayRowEl = memEl.closest('.array-element');
+        if (arrayRowEl) arrayRowEl.classList.add('array-cell-focus');
         const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
@@ -1907,6 +2060,7 @@ export const ui = {
             });
         } finally {
             clearVarHighlight();
+            if (arrayRowEl) arrayRowEl.classList.remove('array-cell-focus');
             closePortal();
         }
     },
@@ -1922,6 +2076,8 @@ export const ui = {
         const tokenEl = expressionTarget.target;
         if (!tokenEl || !memEl) { expressionTarget.clear(); closePortal(); return; }
         const firstTokenId = Array.isArray(targetTokenId) ? targetTokenId[0] : targetTokenId;
+        const arrayRowEl = memEl.closest('.array-element');
+        if (arrayRowEl) arrayRowEl.classList.add('array-cell-focus');
         const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || firstTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
@@ -1930,6 +2086,7 @@ export const ui = {
         } finally {
             expressionTarget.clear();
             clearVarHighlight();
+            if (arrayRowEl) arrayRowEl.classList.remove('array-cell-focus');
             closePortal();
         }
     },
@@ -2025,13 +2182,48 @@ export const ui = {
             element.style.opacity = '0.5';
         });
         await ui.wait(ui.baseDelay);
-        const first = elements[0];
-        first.innerText = valueToVisualText(result);
-        first.style.opacity = '1';
-        first.classList.add('op-result');
-        for (let index = 1; index < elements.length; index++) elements[index].style.display = 'none';
+        const target = ui.pickExpressionCollapseTarget(elements) || elements[0];
+        target.innerText = valueToVisualText(result);
+        target.style.opacity = '1';
+        target.classList.add('op-result');
+        for (let index = 0; index < elements.length; index++) {
+            if (elements[index] === target) continue;
+            elements[index].style.display = 'none';
+        }
     },
-    animateReturnToCall: async (callDomIds, result, sourceId = null) => { if (ui.skipMode) { const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); if(elements.length > 0) { const first = elements[0]; if(!ui.modifiedTokens.has(first.id)) ui.modifiedTokens.set(first.id, { original: first.innerText, transient: true }); first.innerText = valueToVisualText(result); first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) { const el = elements[i]; if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.display = 'none'; } } return; } const startEl = document.getElementById(callDomIds[0]); if(!startEl) return; if (sourceId) { const sourceEl = document.getElementById(sourceId); if (sourceEl) { await ui.flyHelper(result, sourceEl, startEl, false); } } const elements = callDomIds.map(id => document.getElementById(id)).filter(e => e); elements.forEach(el => { if(!ui.modifiedTokens.has(el.id)) ui.modifiedTokens.set(el.id, { original: el.innerText, transient: true }); el.style.opacity = '0.5'; }); if (!sourceId) await ui.wait(ui.baseDelay); const first = elements[0]; first.innerText = valueToVisualText(result); first.style.opacity = '1'; first.classList.add('op-result'); for (let i = 1; i < elements.length; i++) elements[i].style.display = 'none'; },
+    animateReturnToCall: async (callDomIds, result, sourceId = null) => {
+        const elements = (callDomIds || [])
+            .map((id) => document.getElementById(id))
+            .filter((element) => element && element.style.display !== 'none');
+        if (elements.length === 0) return;
+        const targetEl = ui.pickExpressionCollapseTarget(elements) || elements[0];
+        if (ui.skipMode) {
+            elements.forEach((element) => {
+                if (!ui.modifiedTokens.has(element.id)) ui.modifiedTokens.set(element.id, { original: element.innerText, transient: true });
+            });
+            targetEl.innerText = valueToVisualText(result);
+            targetEl.classList.add('op-result');
+            elements.forEach((element) => {
+                if (element !== targetEl) element.style.display = 'none';
+            });
+            return;
+        }
+        if (sourceId) {
+            const sourceEl = document.getElementById(sourceId);
+            if (sourceEl) await ui.flyHelper(result, sourceEl, targetEl, false);
+        }
+        elements.forEach((element) => {
+            if (!ui.modifiedTokens.has(element.id)) ui.modifiedTokens.set(element.id, { original: element.innerText, transient: true });
+            element.style.opacity = '0.5';
+        });
+        if (!sourceId) await ui.wait(ui.baseDelay);
+        targetEl.innerText = valueToVisualText(result);
+        targetEl.style.opacity = '1';
+        targetEl.classList.add('op-result');
+        elements.forEach((element) => {
+            if (element !== targetEl) element.style.display = 'none';
+        });
+    },
     animateParamPass: async (value, sourceId, targetId) => { if (ui.skipMode || ui.isStopping) return; const sourceEl = document.getElementById(sourceId); const targetEl = document.getElementById(targetId); await ui.flyHelper(value, sourceEl, targetEl); }
 };
 

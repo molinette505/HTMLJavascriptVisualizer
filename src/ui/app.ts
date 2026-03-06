@@ -121,6 +121,7 @@ export const app = {
     toggleEventPopup: () => {
         const loadPopup = document.getElementById('load-popup');
         if (loadPopup) loadPopup.classList.remove('visible');
+        ui.hideOptionsPopup();
         const popup = document.getElementById('event-popup');
         popup.classList.toggle('visible');
         if (popup.classList.contains('visible')) {
@@ -159,6 +160,7 @@ export const app = {
     toggleLoadPopup: () => {
         const eventPopup = document.getElementById('event-popup');
         if (eventPopup) eventPopup.classList.remove('visible');
+        ui.hideOptionsPopup();
         const popup = document.getElementById('load-popup');
         if (!popup) return;
         popup.classList.toggle('visible');
@@ -260,7 +262,7 @@ export const app = {
 
         if (typeof options.showFlowLineToggle === 'boolean') {
             app.embedUiOptions.showFlowLineToggle = options.showFlowLineToggle;
-            const flowControl = document.getElementById('flow-line-control');
+            const flowControl = document.getElementById('option-row-flow-line');
             if (flowControl) flowControl.style.display = options.showFlowLineToggle ? '' : 'none';
         }
 

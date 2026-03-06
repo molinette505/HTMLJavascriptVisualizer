@@ -51,7 +51,7 @@ refreshIcons();
 app.initScenarioLoader();
 ui.renderDomPanel();
 ui.switchTab('memory');
-ui.updateFlowLineControl();
+ui.updateDisplayOptionsControls();
 
 const closeDrawerForEditorFocus = () => {
     if (window.innerWidth >= 800) return;
@@ -60,6 +60,7 @@ const closeDrawerForEditorFocus = () => {
     rightPanel.classList.remove('open');
     rightPanel.style.height = '';
     ui.isDrawerOpen = false;
+    ui.hideOptionsPopup();
 };
 
 document.getElementById('code-input').addEventListener('focus', closeDrawerForEditorFocus);
@@ -121,6 +122,19 @@ window.addEventListener('resize', () => {
         const hasActive = document.querySelector('.drawer-tab.active');
         if (!hasActive) ui.switchTab('memory');
     }
+    ui.positionOptionsPopup();
+});
+
+document.addEventListener('click', (event) => {
+    const popup = document.getElementById('options-popup');
+    if (!popup || !popup.classList.contains('visible')) return;
+    const target = event.target;
+    const optionsButton = document.getElementById('btn-options');
+    if (target instanceof Node) {
+        if (popup.contains(target)) return;
+        if (optionsButton && optionsButton.contains(target)) return;
+    }
+    ui.hideOptionsPopup();
 });
 
 const setAppHeight = () => {

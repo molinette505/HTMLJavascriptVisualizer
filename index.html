@@ -20,6 +20,7 @@
                 <button id="btn-trigger" class="icon-btn" onclick="app.triggerEvent()" disabled title="Déclencher l'événement"><i data-lucide="mouse-pointer-click"></i></button>
                 <button id="btn-set-event" class="icon-btn" onclick="app.toggleEventPopup()" title="Nom de la fonction événement"><i data-lucide="pencil"></i></button>
                 <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" title="Charger une sauvegarde"><i data-lucide="folder-open"></i></button>
+                <button id="btn-options" class="icon-btn" onclick="ui.toggleOptionsPopup()" title="Options"><i data-lucide="sliders-horizontal"></i></button>
             </div>
         </div>
         <div class="settings-group">
@@ -28,10 +29,6 @@
                 <button class="speed-btn" onclick="ui.adjustSpeed(-1)">−</button>
                 <div id="speed-display">1x</div>
                 <button class="speed-btn" onclick="ui.adjustSpeed(1)">+</button>
-            </div>
-            <div id="flow-line-control" class="control-group">
-                <span>Ligne</span>
-                <button id="btn-toggle-flow-line" class="toggle-btn is-on" onclick="ui.toggleFlowLine()">ON</button>
             </div>
         </div>
         
@@ -46,6 +43,23 @@
             <select id="load-scenario-select"></select>
             <button onclick="app.loadSelectedScenario()">Load</button>
             <button class="btn-secondary" onclick="app.toggleLoadPopup()">Fermer</button>
+        </div>
+
+        <div id="options-popup" class="event-popup options-popup">
+            <span class="load-label">Options d'affichage</span>
+            <div id="option-row-flow-line" class="option-row">
+                <span>Ligne de liaison</span>
+                <button id="btn-toggle-flow-line" class="toggle-btn is-on" onclick="ui.toggleFlowLine()">ON</button>
+            </div>
+            <div class="option-row">
+                <span>Types des variables</span>
+                <button id="btn-toggle-memory-types" class="toggle-btn" onclick="ui.toggleMemoryTypes()">OFF</button>
+            </div>
+            <div class="option-row">
+                <span>Adresses mémoire</span>
+                <button id="btn-toggle-memory-addresses" class="toggle-btn" onclick="ui.toggleMemoryAddresses()">OFF</button>
+            </div>
+            <button class="btn-secondary" onclick="ui.toggleOptionsPopup(false)">Fermer</button>
         </div>
     </div>
 
