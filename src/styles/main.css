@@ -730,14 +730,15 @@
             border-color: rgba(96, 165, 250, 0.75);
             background: rgba(96, 165, 250, 0.12);
             min-height: 42px;
+            border-radius: 8px;
         }
         .dom-group-highlight-box {
             position: absolute;
             pointer-events: none;
-            border: 2px dashed rgba(250, 204, 21, 0.95);
-            border-radius: 12px;
-            background: rgba(250, 204, 21, 0.1);
-            box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.2);
+            border: 2px dashed rgba(96, 165, 250, 0.92);
+            border-radius: 8px;
+            background: rgba(96, 165, 250, 0.12);
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.22);
             z-index: 4;
         }
 
@@ -833,39 +834,39 @@
             align-items: center;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 6px;
+            gap: 8px;
             max-width: 100%;
-            line-height: 1.25;
+            line-height: 1.2;
             text-align: center;
             border: 1px solid #334155;
-            border-radius: 999px;
+            border-radius: 8px;
             background: #111f35;
-            padding: 2px 8px;
-            min-height: 24px;
+            padding: 6px 8px;
+            min-height: 32px;
         }
         .mem-dom-inline .dom-tree-attrs {
             display: inline-flex;
-            gap: 4px;
+            gap: 6px;
             flex-wrap: wrap;
             justify-content: center;
         }
         .mem-dom-inline .dom-tree-attr {
-            font-size: 11px;
+            font-size: 12px;
             opacity: 0.95;
         }
         .mem-dom-inline-children {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 20px;
-            height: 18px;
+            min-width: 24px;
+            height: 20px;
             padding: 0 6px;
-            border: 1px dashed rgba(148, 163, 184, 0.65);
-            border-radius: 999px;
+            border: 1px dashed rgba(148, 163, 184, 0.45);
+            border-radius: 6px;
             color: #cbd5e1;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 700;
-            background: rgba(15, 23, 42, 0.5);
+            background: rgba(15, 23, 42, 0.42);
         }
         .memory-array-portal {
             position: absolute;

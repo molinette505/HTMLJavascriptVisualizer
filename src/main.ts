@@ -18,6 +18,14 @@ window.setVisualizerEmbedOptions = (options) => app.applyEmbedUiOptions(options)
 document.getElementById('code-input').addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
         e.preventDefault();
+        if (e.shiftKey) {
+            editor.outdentSelection();
+            return;
+        }
+        if (editor.hasMultilineSelection()) {
+            editor.indentSelection();
+            return;
+        }
         editor.insertText('    ');
     }
 

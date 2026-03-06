@@ -5,6 +5,7 @@ import { ui } from './ui';
 
 export const editor = {
     history: [DEFAULT_CODE], historyIdx: 0, timeout: null,
+    tabString: '    ',
     refresh: () => {
         const text = document.getElementById('code-input').value;
         const mode = (window.app && typeof window.app.getCurrentEditorMode === 'function')
@@ -42,6 +43,71 @@ export const editor = {
     saveHistory: () => { const val = document.getElementById('code-input').value; if (editor.history[editor.historyIdx] !== val) { editor.history = editor.history.slice(0, editor.historyIdx + 1); editor.history.push(val); editor.historyIdx++; } },
     undo: (e) => { if(e) {e.preventDefault(); e.stopPropagation();} if (editor.historyIdx > 0) { editor.historyIdx--; document.getElementById('code-input').value = editor.history[editor.historyIdx]; editor.handleInput(); } },
     redo: (e) => { if(e) {e.preventDefault(); e.stopPropagation();} if (editor.historyIdx < editor.history.length - 1) { editor.historyIdx++; document.getElementById('code-input').value = editor.history[editor.historyIdx]; editor.handleInput(); } },
+    hasMultilineSelection: () => {
+        const input = document.getElementById('code-input');
+        if (!input) return false;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        if (start === end) return false;
+        const value = input.value || '';
+        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+        const lineEndCandidate = value.indexOf('\n', end);
+        const lineEnd = lineEndCandidate === -1 ? value.length : lineEndCandidate;
+        const selectedBlock = value.slice(lineStart, lineEnd);
+        return selectedBlock.includes('\n');
+    },
+    indentSelection: () => {
+        const input = document.getElementById('code-input');
+        if (!input) return;
+        const value = input.value || '';
+        const selectionStart = input.selectionStart;
+        const selectionEnd = input.selectionEnd;
+        if (selectionStart === selectionEnd) {
+            editor.insertText(editor.tabString);
+            return;
+        }
+        const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
+        const lineEndCandidate = value.indexOf('\n', selectionEnd);
+        const lineEnd = lineEndCandidate === -1 ? value.length : lineEndCandidate;
+        const block = value.slice(lineStart, lineEnd);
+        const lines = block.split('\n');
+        const indented = lines.map((line) => `${editor.tabString}${line}`).join('\n');
+        input.value = `${value.slice(0, lineStart)}${indented}${value.slice(lineEnd)}`;
+        input.selectionStart = selectionStart + editor.tabString.length;
+        input.selectionEnd = selectionEnd + (lines.length * editor.tabString.length);
+        editor.handleInput();
+        editor.saveHistory();
+    },
+    outdentSelection: () => {
+        const input = document.getElementById('code-input');
+        if (!input) return;
+        const value = input.value || '';
+        const selectionStart = input.selectionStart;
+        const selectionEnd = input.selectionEnd;
+        const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
+        const lineEndCandidate = value.indexOf('\n', selectionEnd);
+        const lineEnd = lineEndCandidate === -1 ? value.length : lineEndCandidate;
+        const block = value.slice(lineStart, lineEnd);
+        const lines = block.split('\n');
+        const removedPerLine = [];
+        const outdentedLines = lines.map((line) => {
+            if (line.startsWith('\t')) {
+                removedPerLine.push(1);
+                return line.slice(1);
+            }
+            const spacesMatch = line.match(/^ {1,4}/);
+            const removed = spacesMatch ? spacesMatch[0].length : 0;
+            removedPerLine.push(removed);
+            return line.slice(removed);
+        });
+        input.value = `${value.slice(0, lineStart)}${outdentedLines.join('\n')}${value.slice(lineEnd)}`;
+        const removedBeforeSelection = Math.min(removedPerLine[0] || 0, selectionStart - lineStart);
+        const totalRemoved = removedPerLine.reduce((sum, amount) => sum + amount, 0);
+        input.selectionStart = Math.max(lineStart, selectionStart - removedBeforeSelection);
+        input.selectionEnd = Math.max(input.selectionStart, selectionEnd - totalRemoved);
+        editor.handleInput();
+        editor.saveHistory();
+    },
     
     // Insert text helper
     insertText: (text, cursorOffset = false, stopProp = false, evt = null) => {

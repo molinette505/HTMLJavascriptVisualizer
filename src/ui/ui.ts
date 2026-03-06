@@ -796,7 +796,7 @@ export const ui = {
     domDocument: null,
     domCss: '',
     domViewMode: 'tree',
-    showDomRender: false,
+    showDomRender: true,
     showFlowLine: true,
     showMemoryTypes: false,
     showMemoryAddresses: false,

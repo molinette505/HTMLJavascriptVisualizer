@@ -5,8 +5,32 @@ import { createVirtualDocument } from '../core/virtualDom';
 import { ui, consoleUI } from './ui';
 import { editor } from './editor';
 
-const EDITOR_MODES = ['js', 'html', 'css'];
+const EDITOR_MODES = ['html', 'css', 'js'];
 const isEditorMode = (mode) => EDITOR_MODES.includes(mode);
+
+const normalizeLineBreaks = (text) => String(text || '').replace(/\r\n?/g, '\n');
+const stripEdgeBlankLines = (text) => String(text || '').replace(/^\s*\n+/, '').replace(/\n+\s*$/, '');
+const stripTrailingSpaces = (text) => String(text || '').replace(/[ \t]+$/gm, '');
+const dedentCommonIndent = (text) => {
+    const lines = String(text || '').split('\n');
+    const nonEmpty = lines.filter((line) => line.trim().length > 0);
+    if (nonEmpty.length === 0) return String(text || '');
+    const minIndent = nonEmpty.reduce((min, line) => {
+        const match = line.match(/^[ \t]*/);
+        const indent = match ? match[0].length : 0;
+        return Math.min(min, indent);
+    }, Number.POSITIVE_INFINITY);
+    if (!Number.isFinite(minIndent) || minIndent <= 0) return String(text || '');
+    return lines.map((line) => {
+        if (line.trim().length === 0) return '';
+        return line.slice(minIndent);
+    }).join('\n');
+};
+const formatLoadedText = (text, mode = 'js') => {
+    const normalized = dedentCommonIndent(stripTrailingSpaces(stripEdgeBlankLines(normalizeLineBreaks(text))));
+    if (mode === 'html') return normalized || '<body></body>';
+    return normalized;
+};
 
 const extractScenarioHtml = (rawHtml) => {
     const source = String(rawHtml || '').trim();
@@ -15,17 +39,17 @@ const extractScenarioHtml = (rawHtml) => {
     const scriptBlocks = [];
     const styleBlocks = [];
     const withoutScripts = source.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_, content = '') => {
-        scriptBlocks.push(String(content));
+        scriptBlocks.push(formatLoadedText(content, 'js'));
         return '';
     });
     const withoutScriptsAndStyles = withoutScripts.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, content = '') => {
-        styleBlocks.push(String(content));
+        styleBlocks.push(formatLoadedText(content, 'css'));
         return '';
     });
 
-    const code = scriptBlocks.join('\n\n').trim();
-    const css = styleBlocks.join('\n\n').trim();
-    const domHtml = withoutScriptsAndStyles.trim() || '<body></body>';
+    const code = formatLoadedText(scriptBlocks.join('\n\n'), 'js');
+    const css = formatLoadedText(styleBlocks.join('\n\n'), 'css');
+    const domHtml = formatLoadedText(withoutScriptsAndStyles, 'html');
     return { code, css, domHtml };
 };
 
@@ -50,10 +74,10 @@ const normalizeExternalContent = (payload) => {
     let uiOptions = null;
 
     if (typeof payload === 'string') {
-        code = payload;
+        code = formatLoadedText(payload, 'js');
     } else if (payload && typeof payload === 'object') {
-        if (typeof payload.js === 'string') code = payload.js;
-        else if (typeof payload.code === 'string') code = payload.code;
+        if (typeof payload.js === 'string') code = formatLoadedText(payload.js, 'js');
+        else if (typeof payload.code === 'string') code = formatLoadedText(payload.code, 'js');
 
         if (typeof payload.html === 'string') {
             const parsed = extractScenarioHtml(payload.html);
@@ -61,10 +85,10 @@ const normalizeExternalContent = (payload) => {
             if (code === null && parsed.code) code = parsed.code;
             if (parsed.css) cssChunks.push(parsed.css);
         } else if (typeof payload.domHtml === 'string') {
-            domHtml = payload.domHtml || '<body></body>';
+            domHtml = formatLoadedText(payload.domHtml || '<body></body>', 'html');
         }
-        if (typeof payload.css === 'string') cssChunks.push(payload.css);
-        else if (typeof payload.domCss === 'string') cssChunks.push(payload.domCss);
+        if (typeof payload.css === 'string') cssChunks.push(formatLoadedText(payload.css, 'css'));
+        else if (typeof payload.domCss === 'string') cssChunks.push(formatLoadedText(payload.domCss, 'css'));
 
         if (typeof payload.label === 'string' && payload.label.trim()) label = payload.label.trim();
         else if (typeof payload.source === 'string' && payload.source.trim()) label = payload.source.trim();
@@ -75,7 +99,7 @@ const normalizeExternalContent = (payload) => {
         if (payload.ui && typeof payload.ui === 'object') uiOptions = payload.ui;
     }
 
-    const finalCss = cssChunks.length > 0 ? cssChunks.join('\n\n') : css;
+    const finalCss = cssChunks.length > 0 ? formatLoadedText(cssChunks.join('\n\n'), 'css') : css;
     return {
         code,
         domHtml,
@@ -150,8 +174,8 @@ export const app = {
         app.currentDomCss = cssParts.join('\n\n').trim();
     },
     initializeEditorBuffers: (defaultJsCode = '') => {
-        app.editorBuffers.js = String(defaultJsCode || '');
-        app.editorBuffers.html = '<body></body>';
+        app.editorBuffers.js = formatLoadedText(defaultJsCode || '', 'js');
+        app.editorBuffers.html = formatLoadedText('<body></body>', 'html');
         app.editorBuffers.css = '';
         app.currentEditorMode = 'js';
         app.hydrateDomStateFromBuffers();
@@ -267,17 +291,17 @@ export const app = {
 
     applyScenario: (scenario) => {
         app.syncCurrentEditorBuffer();
-        let nextCode = String(scenario.code || '');
+        let nextCode = formatLoadedText(scenario.code || '', 'js');
         if (scenario.kind === 'html') {
             const parsed = extractScenarioHtml(scenario.html);
-            nextCode = parsed.code;
-            app.editorBuffers.html = parsed.domHtml || '<body></body>';
-            app.editorBuffers.css = parsed.css || '';
+            nextCode = formatLoadedText(parsed.code || '', 'js');
+            app.editorBuffers.html = formatLoadedText(parsed.domHtml || '<body></body>', 'html');
+            app.editorBuffers.css = formatLoadedText(parsed.css || '', 'css');
             app.currentDomHtml = app.editorBuffers.html;
             app.currentDomCss = app.editorBuffers.css;
             ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
         }
-        app.editorBuffers.js = nextCode;
+        app.editorBuffers.js = formatLoadedText(nextCode, 'js');
         app.currentEditorMode = 'js';
         app.applyEditorModeToInput();
         consoleUI.clear();
@@ -312,9 +336,9 @@ export const app = {
     applyHtmlSource: (htmlSource, label = 'Fichier HTML') => {
         const parsed = extractScenarioHtml(htmlSource);
         app.syncCurrentEditorBuffer();
-        app.editorBuffers.html = parsed.domHtml || '<body></body>';
-        app.editorBuffers.css = parsed.css || '';
-        app.editorBuffers.js = parsed.code || '';
+        app.editorBuffers.html = formatLoadedText(parsed.domHtml || '<body></body>', 'html');
+        app.editorBuffers.css = formatLoadedText(parsed.css || '', 'css');
+        app.editorBuffers.js = formatLoadedText(parsed.code || '', 'js');
         app.currentEditorMode = parsed.code ? 'js' : 'html';
         app.hydrateDomStateFromBuffers();
         ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
@@ -368,9 +392,9 @@ export const app = {
 
         const apply = () => {
             app.syncCurrentEditorBuffer();
-            if (normalized.domHtml !== null) app.editorBuffers.html = normalized.domHtml || '<body></body>';
-            if (normalized.css !== null) app.editorBuffers.css = String(normalized.css || '');
-            if (normalized.code !== null) app.editorBuffers.js = String(normalized.code);
+            if (normalized.domHtml !== null) app.editorBuffers.html = formatLoadedText(normalized.domHtml || '<body></body>', 'html');
+            if (normalized.css !== null) app.editorBuffers.css = formatLoadedText(String(normalized.css || ''), 'css');
+            if (normalized.code !== null) app.editorBuffers.js = formatLoadedText(String(normalized.code), 'js');
             if (normalized.code !== null) app.currentEditorMode = 'js';
             app.hydrateDomStateFromBuffers();
             ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
