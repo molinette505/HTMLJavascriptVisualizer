@@ -226,6 +226,7 @@ export const app = {
     initScenarioLoader: () => {
         const select = document.getElementById('load-scenario-select');
         const loadButton = document.getElementById('btn-load');
+        const fileInput = document.getElementById('load-html-file-input');
         if (!select || !loadButton) return;
         if (app.scenarios.length === 0) {
             select.innerHTML = '<option value="">Aucune sauvegarde</option>';
@@ -239,6 +240,16 @@ export const app = {
             select.value = '0';
         }
         loadButton.disabled = app.scenarios.length === 0;
+        if (fileInput && !fileInput.dataset.bound) {
+            fileInput.dataset.bound = 'true';
+            fileInput.addEventListener('change', () => {
+                const files = fileInput.files;
+                const file = files && files.length > 0 ? files[0] : null;
+                if (!file) return;
+                app.loadHtmlFile(file);
+                fileInput.value = '';
+            });
+        }
     },
 
     toggleLoadPopup: () => {
@@ -298,6 +309,54 @@ export const app = {
         }
         app.applyScenario(scenario);
     },
+    applyHtmlSource: (htmlSource, label = 'Fichier HTML') => {
+        const parsed = extractScenarioHtml(htmlSource);
+        app.syncCurrentEditorBuffer();
+        app.editorBuffers.html = parsed.domHtml || '<body></body>';
+        app.editorBuffers.css = parsed.css || '';
+        app.editorBuffers.js = parsed.code || '';
+        app.currentEditorMode = parsed.code ? 'js' : 'html';
+        app.hydrateDomStateFromBuffers();
+        ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
+        app.applyEditorModeToInput();
+        consoleUI.clear();
+        ui.log(`Contenu charge (${label}).`, 'info');
+        const popup = document.getElementById('load-popup');
+        if (popup) popup.classList.remove('visible');
+    },
+    loadHtmlFile: (file) => {
+        if (!file) return;
+        const apply = () => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const content = typeof reader.result === 'string' ? reader.result : '';
+                app.applyHtmlSource(content, file.name || 'Fichier HTML');
+            };
+            reader.onerror = () => {
+                ui.log('Lecture du fichier HTML impossible.', 'error');
+            };
+            reader.readAsText(file);
+        };
+        if (app.pendingScenarioLoadTimer) {
+            clearTimeout(app.pendingScenarioLoadTimer);
+            app.pendingScenarioLoadTimer = null;
+        }
+        if (app.isRunning) {
+            app.stop();
+            app.pendingScenarioLoadTimer = setTimeout(() => {
+                apply();
+                app.pendingScenarioLoadTimer = null;
+            }, 90);
+            return;
+        }
+        apply();
+    },
+    pickAndLoadHtmlFile: () => {
+        const input = document.getElementById('load-html-file-input');
+        if (!input) return;
+        input.value = '';
+        input.click();
+    },
 
     loadExternalContent: (payload) => {
         const normalized = normalizeExternalContent(payload);
@@ -356,7 +415,9 @@ export const app = {
         if (typeof options.showLoadButton === 'boolean') {
             app.embedUiOptions.showLoadButton = options.showLoadButton;
             const loadButton = document.getElementById('btn-load');
+            const loadFileInput = document.getElementById('load-html-file-input');
             if (loadButton) loadButton.style.display = options.showLoadButton ? '' : 'none';
+            if (loadFileInput && !options.showLoadButton) loadFileInput.value = '';
             if (!options.showLoadButton) {
                 const popup = document.getElementById('load-popup');
                 if (popup) popup.classList.remove('visible');

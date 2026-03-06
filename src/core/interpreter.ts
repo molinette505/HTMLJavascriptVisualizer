@@ -466,9 +466,19 @@ export class Interpreter {
                             await this.ui.wait(220);
                         }
                         if (!domNodeVisible) {
-                            obj[prop] = val;
-                            if (targetName && targetName !== 'document') {
-                                await this.ui.animateAssignment(targetName, obj, sourceTokenId, null, targetVarTokenId);
+                            if (typeof this.ui.animateDetachedDomPropertyMutation === 'function') {
+                                await this.ui.animateDetachedDomPropertyMutation({
+                                    targetNode: obj,
+                                    sourceTokenId,
+                                    payload: val,
+                                    property: prop,
+                                    applyMutation: async () => { obj[prop] = val; }
+                                });
+                            } else {
+                                obj[prop] = val;
+                                if (targetName && targetName !== 'document') {
+                                    await this.ui.animateAssignment(targetName, obj, sourceTokenId, null, targetVarTokenId);
+                                }
                             }
                         } else {
                             if (typeof this.ui.animateDomPropertyMutation === 'function') {
@@ -1109,7 +1119,15 @@ export class Interpreter {
                             let result;
                             if (method === 'appendChild') {
                                 const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
-                                if (typeof this.ui.animateDomAppendMutation === 'function') {
+                                const domNodeVisible = this.isDomNodeVisible(obj);
+                                if (!domNodeVisible && typeof this.ui.animateDetachedDomAppendMutation === 'function') {
+                                    await this.ui.animateDetachedDomAppendMutation({
+                                        parentNode: obj,
+                                        childNode: argValues[0],
+                                        sourceTokenId,
+                                        applyMutation: async () => { result = obj[method](...argValues); }
+                                    });
+                                } else if (typeof this.ui.animateDomAppendMutation === 'function') {
                                     await this.ui.animateDomAppendMutation({
                                         parentNode: obj,
                                         childNode: argValues[0],
@@ -1131,7 +1149,15 @@ export class Interpreter {
                             }
                             if (method === 'removeChild') {
                                 const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
-                                if (typeof this.ui.animateDomRemoveMutation === 'function') {
+                                const domNodeVisible = this.isDomNodeVisible(obj);
+                                if (!domNodeVisible && typeof this.ui.animateDetachedDomRemoveMutation === 'function') {
+                                    await this.ui.animateDetachedDomRemoveMutation({
+                                        parentNode: obj,
+                                        removedNode: argValues[0],
+                                        sourceTokenId,
+                                        applyMutation: async () => { result = obj[method](...argValues); }
+                                    });
+                                } else if (typeof this.ui.animateDomRemoveMutation === 'function') {
                                     await this.ui.animateDomRemoveMutation({
                                         parentNode: obj,
                                         removedNode: argValues[0],

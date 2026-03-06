@@ -83,6 +83,199 @@ const renderTemplateStringValue = (rawTemplateTokenValue) => {
     return html;
 };
 
+const renderHtmlCode = (source) => {
+    const text = String(source || '');
+    let result = '';
+    let index = 0;
+    const len = text.length;
+    const isNameStart = (char) => /[A-Za-z]/.test(char);
+    const isNameChar = (char) => /[A-Za-z0-9:_-]/.test(char);
+    const isWhitespace = (char) => /\s/.test(char);
+
+    while (index < len) {
+        if (text.startsWith('<!--', index)) {
+            const end = text.indexOf('-->', index + 4);
+            const next = end === -1 ? len : end + 3;
+            result += `<span class="tok-comment">${escapeHtml(text.slice(index, next))}</span>`;
+            index = next;
+            continue;
+        }
+        if (text[index] !== '<') {
+            const next = text.indexOf('<', index);
+            const end = next === -1 ? len : next;
+            result += `<span class="tok-html-text">${escapeHtml(text.slice(index, end))}</span>`;
+            index = end;
+            continue;
+        }
+
+        let close = index + 1;
+        let quote = '';
+        while (close < len) {
+            const char = text[close];
+            if (quote) {
+                if (char === '\\') {
+                    close += 2;
+                    continue;
+                }
+                if (char === quote) quote = '';
+                close++;
+                continue;
+            }
+            if (char === '"' || char === '\'') {
+                quote = char;
+                close++;
+                continue;
+            }
+            if (char === '>') break;
+            close++;
+        }
+        if (close >= len) {
+            result += `<span class="tok-html-text">${escapeHtml(text.slice(index))}</span>`;
+            break;
+        }
+
+        const inside = text.slice(index + 1, close);
+        let cursor = 0;
+        result += '<span class="tok-html-punc">&lt;</span>';
+        while (cursor < inside.length && isWhitespace(inside[cursor])) {
+            result += escapeHtml(inside[cursor]);
+            cursor++;
+        }
+        if (inside[cursor] === '/') {
+            result += '<span class="tok-html-punc">/</span>';
+            cursor++;
+        }
+        while (cursor < inside.length && isWhitespace(inside[cursor])) {
+            result += escapeHtml(inside[cursor]);
+            cursor++;
+        }
+
+        if (cursor < inside.length && isNameStart(inside[cursor])) {
+            const start = cursor;
+            cursor++;
+            while (cursor < inside.length && isNameChar(inside[cursor])) cursor++;
+            result += `<span class="tok-html-tag">${escapeHtml(inside.slice(start, cursor))}</span>`;
+        }
+
+        while (cursor < inside.length) {
+            const char = inside[cursor];
+            if (isWhitespace(char)) {
+                result += escapeHtml(char);
+                cursor++;
+                continue;
+            }
+            if (char === '/') {
+                result += '<span class="tok-html-punc">/</span>';
+                cursor++;
+                continue;
+            }
+            if (char === '=') {
+                result += '<span class="tok-html-punc">=</span>';
+                cursor++;
+                continue;
+            }
+            if (char === '"' || char === '\'') {
+                const q = char;
+                let end = cursor + 1;
+                while (end < inside.length) {
+                    if (inside[end] === '\\') {
+                        end += 2;
+                        continue;
+                    }
+                    if (inside[end] === q) {
+                        end++;
+                        break;
+                    }
+                    end++;
+                }
+                result += `<span class="tok-html-string">${escapeHtml(inside.slice(cursor, end))}</span>`;
+                cursor = end;
+                continue;
+            }
+            const start = cursor;
+            while (cursor < inside.length && !isWhitespace(inside[cursor]) && !['/', '=', '"', '\''].includes(inside[cursor])) cursor++;
+            result += `<span class="tok-html-attr">${escapeHtml(inside.slice(start, cursor))}</span>`;
+        }
+        result += '<span class="tok-html-punc">&gt;</span>';
+        index = close + 1;
+    }
+    return result;
+};
+
+const renderCssCode = (source) => {
+    const text = String(source || '');
+    let result = '';
+    let index = 0;
+    let depth = 0;
+    let mode = 'selector';
+    const punct = new Set(['{', '}', ':', ';', ',', '(', ')']);
+    const isWhitespace = (char) => /\s/.test(char);
+
+    while (index < text.length) {
+        if (text.startsWith('/*', index)) {
+            const end = text.indexOf('*/', index + 2);
+            const next = end === -1 ? text.length : end + 2;
+            result += `<span class="tok-comment">${escapeHtml(text.slice(index, next))}</span>`;
+            index = next;
+            continue;
+        }
+        const char = text[index];
+        if (char === '"' || char === '\'') {
+            const q = char;
+            let end = index + 1;
+            while (end < text.length) {
+                if (text[end] === '\\') {
+                    end += 2;
+                    continue;
+                }
+                if (text[end] === q) {
+                    end++;
+                    break;
+                }
+                end++;
+            }
+            result += `<span class="tok-css-string">${escapeHtml(text.slice(index, end))}</span>`;
+            index = end;
+            continue;
+        }
+        if (punct.has(char)) {
+            result += `<span class="tok-css-punc">${escapeHtml(char)}</span>`;
+            if (char === '{') {
+                depth++;
+                mode = 'property';
+            } else if (char === '}') {
+                depth = Math.max(0, depth - 1);
+                mode = depth > 0 ? 'property' : 'selector';
+            } else if (char === ':') {
+                mode = 'value';
+            } else if (char === ';') {
+                mode = depth > 0 ? 'property' : 'selector';
+            }
+            index++;
+            continue;
+        }
+        if (isWhitespace(char)) {
+            result += escapeHtml(char);
+            index++;
+            continue;
+        }
+        let end = index;
+        while (end < text.length) {
+            const next = text[end];
+            if (isWhitespace(next) || punct.has(next) || next === '"' || next === '\'' || text.startsWith('/*', end)) break;
+            end++;
+        }
+        const token = text.slice(index, end);
+        let cls = 'tok-css-value';
+        if (mode === 'selector') cls = token.startsWith('@') ? 'tok-keyword' : 'tok-css-selector';
+        else if (mode === 'property') cls = 'tok-css-property';
+        else if (/^-?\d+(\.\d+)?(px|em|rem|vh|vw|%)?$/i.test(token)) cls = 'tok-number';
+        result += `<span class="${cls}">${escapeHtml(token)}</span>`;
+        index = end;
+    }
+    return result;
+};
+
 const valueToVisualText = (value) => {
     if (value === undefined) return 'undefined';
     if (isVirtualDomValue(value)) return String(formatValue(value));
@@ -354,15 +547,15 @@ const getDomTreeRef = (node) => {
     return ref;
 };
 
-const buildDomTreeMarkup = (node, depth = 0, includeIds = true) => {
+const buildDomTreeMarkup = (node, depth = 0, includeIds = true, idPrefix = 'dom-tree-node-') => {
     if (!node) return '';
     const treeRef = getDomTreeRef(node);
     if (node.__domType === 'text') {
         const trimmed = String(node.textContent || '').trim();
         if (!trimmed) return '';
         const text = escapeHtml(trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed);
-        const idAttr = includeIds ? ` id="dom-tree-node-${treeRef}"` : '';
-        return `<div${idAttr} class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr" data-dom-attr="text">"${text}"</span></div>`;
+        const idAttr = includeIds ? ` id="${idPrefix}${treeRef}"` : '';
+        return `<div${idAttr} data-dom-tree-ref="${treeRef}" class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr" data-dom-attr="text">"${text}"</span></div>`;
     }
     if (node.__domType !== 'element') return '';
     const tag = escapeHtml(String(node.tagName || 'node').toLowerCase());
@@ -379,9 +572,9 @@ const buildDomTreeMarkup = (node, depth = 0, includeIds = true) => {
         .map((name) => `<span class="dom-tree-attr" data-dom-attr="${escapeHtml(name)}">[${escapeHtml(name)}="${escapeHtml(node.attributes[name])}"]</span>`)
         .join('');
     const attrsPart = attrs ? `<span class="dom-tree-attrs">${attrs}</span>` : '';
-    const idAttr = includeIds ? ` id="dom-tree-node-${treeRef}"` : '';
-    const self = `<div${idAttr} class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</div>`;
-    const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1, includeIds)).filter(Boolean).join('');
+    const idAttr = includeIds ? ` id="${idPrefix}${treeRef}"` : '';
+    const self = `<div${idAttr} data-dom-tree-ref="${treeRef}" class="dom-tree-node" style="margin-left:${depth * 18}px"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</div>`;
+    const children = (node.children || []).map((child) => buildDomTreeMarkup(child, depth + 1, includeIds, idPrefix)).filter(Boolean).join('');
     return `${self}${children}`;
 };
 
@@ -594,6 +787,9 @@ export const ui = {
     memoryDomTooltipBound: false,
     memoryArrayPortalEl: null,
     memoryArrayPortalCleanup: null,
+    detachedDomPortalEl: null,
+    detachedDomPortalPanelEl: null,
+    detachedDomPortalCleanup: null,
     codeValueTooltipEl: null,
     codeValueTooltipAnchorEl: null,
     codeValueTooltipBound: false,
@@ -834,6 +1030,83 @@ export const ui = {
         window.setTimeout(() => {
             if (portal.parentElement) portal.remove();
         }, 180);
+    },
+    hideDetachedDomPortal: () => {
+        if (typeof ui.detachedDomPortalCleanup === 'function') {
+            ui.detachedDomPortalCleanup();
+        }
+        ui.detachedDomPortalCleanup = null;
+        ui.detachedDomPortalPanelEl = null;
+        if (!ui.detachedDomPortalEl) return;
+        const portal = ui.detachedDomPortalEl;
+        ui.detachedDomPortalEl = null;
+        portal.classList.add('is-closing');
+        window.setTimeout(() => {
+            if (portal.parentElement) portal.remove();
+        }, 180);
+    },
+    getMemoryAnchorForDomNode: (node) => {
+        if (!node) return null;
+        for (const [valueId, previewNode] of ui.memoryDomPreviewRefs.entries()) {
+            if (previewNode === node) {
+                const element = document.getElementById(valueId);
+                if (element) return element;
+            }
+        }
+        return null;
+    },
+    renderDetachedDomPortalTree: (targetNode) => {
+        const panel = ui.detachedDomPortalPanelEl;
+        if (!panel) return;
+        const body = panel.querySelector('.detached-dom-portal-body');
+        if (!body) return;
+        body.innerHTML = buildDomTreeMarkup(targetNode, 0, true, 'detached-dom-tree-node-') || '<div class="dom-tree-empty">Apercu indisponible.</div>';
+    },
+    openDetachedDomPortal: (targetNode, title = 'Noeud hors DOM') => {
+        ui.hideDetachedDomPortal();
+        const container = document.getElementById('memory-container');
+        if (!container || !targetNode) return null;
+        const portal = document.createElement('div');
+        portal.className = 'detached-dom-portal';
+        const panel = document.createElement('div');
+        panel.className = 'detached-dom-portal-panel';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'detached-dom-portal-title';
+        titleEl.innerText = title;
+        const body = document.createElement('div');
+        body.className = 'detached-dom-portal-body';
+        panel.appendChild(titleEl);
+        panel.appendChild(body);
+        portal.appendChild(panel);
+        container.appendChild(portal);
+        ui.detachedDomPortalEl = portal;
+        ui.detachedDomPortalPanelEl = panel;
+        ui.renderDetachedDomPortalTree(targetNode);
+
+        const anchorEl = ui.getMemoryAnchorForDomNode(targetNode);
+        const positionPanel = () => {
+            if (!panel || !container) return;
+            const panelRect = panel.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const visibleTop = container.scrollTop + 8;
+            const visibleBottom = container.scrollTop + container.clientHeight - panelRect.height - 8;
+            let top = visibleTop;
+            if (anchorEl) {
+                const anchorRect = anchorEl.getBoundingClientRect();
+                const anchorCenter = (anchorRect.top - containerRect.top) + container.scrollTop + (anchorRect.height / 2);
+                top = anchorCenter - (panelRect.height / 2);
+            }
+            top = Math.max(visibleTop, Math.min(visibleBottom, top));
+            panel.style.top = `${top}px`;
+        };
+        const onContainerScroll = () => positionPanel();
+        container.addEventListener('scroll', onContainerScroll, { passive: true });
+        ui.detachedDomPortalCleanup = () => {
+            container.removeEventListener('scroll', onContainerScroll);
+        };
+        window.requestAnimationFrame(positionPanel);
+        window.requestAnimationFrame(positionPanel);
+        return panel;
     },
     openMemoryArrayPortal: (aliasVarName, ownerVarName, targetIndex = null) => {
         ui.hideMemoryArrayPortal();
@@ -1152,6 +1425,7 @@ export const ui = {
         ui.hideMemoryDomTooltip();
         ui.hideCodeValueTooltip();
         ui.hideMemoryArrayPortal();
+        ui.hideDetachedDomPortal();
         document.querySelectorAll('.flying-element').forEach(el => el.remove());
         document.querySelectorAll('.flying-dom-node').forEach(el => el.remove());
         document.querySelectorAll('.flow-link-line').forEach(el => el.remove());
@@ -1188,12 +1462,12 @@ export const ui = {
     renderPlainCode: (text, mode = 'text') => {
         const display = document.getElementById('code-display');
         if (!display) return;
-        const className = mode === 'html'
-            ? 'tok-plain-html'
-            : mode === 'css'
-                ? 'tok-plain-css'
-                : 'tok-ident';
-        display.innerHTML = `<span class="${className}">${escapeHtml(String(text || ''))}</span>`;
+        const rawText = String(text || '');
+        let markup = '';
+        if (mode === 'html') markup = renderHtmlCode(rawText);
+        else if (mode === 'css') markup = renderCssCode(rawText);
+        else markup = `<span class="tok-ident">${escapeHtml(rawText)}</span>`;
+        display.innerHTML = markup;
         ui.currentPropertyTokenSnapshot.clear();
         ui.modifiedTokens.clear();
         ui.lockedTokens.clear();
@@ -1210,6 +1484,7 @@ export const ui = {
         ui.hideMemoryDomTooltip();
         ui.hideCodeValueTooltip();
         ui.hideMemoryArrayPortal();
+        ui.hideDetachedDomPortal();
         ui.currentMemoryVarSnapshot.clear();
         ui.currentPropertyTokenSnapshot.clear();
         ui.modifiedTokens.clear(); 
@@ -1267,10 +1542,14 @@ export const ui = {
         if (domCss !== undefined) ui.domCss = String(domCss || '');
         ui.renderDomPanel();
     },
-    getDomTreeNodeElement: (node) => {
+    getDomTreeNodeElement: (node, root = document) => {
         if (!node) return null;
         const ref = getDomTreeRef(node);
         if (!ref) return null;
+        if (root && typeof root.querySelector === 'function') {
+            const scoped = root.querySelector(`[data-dom-tree-ref="${ref}"]`);
+            if (scoped) return scoped;
+        }
         return document.getElementById(`dom-tree-node-${ref}`);
     },
     getElementsByIds: (ids) => (ids || []).map((id) => document.getElementById(id)).filter(Boolean),
@@ -1309,11 +1588,11 @@ export const ui = {
         if (!attrName) return [];
         return Array.from(nodeElement.querySelectorAll(`[data-dom-attr="${attrName}"]`));
     },
-    getDomTreeSubtreeElements: (node) => {
+    getDomTreeSubtreeElements: (node, root = document) => {
         if (!node) return [];
         const elements = [];
         const walk = (current) => {
-            const currentEl = ui.getDomTreeNodeElement(current);
+            const currentEl = ui.getDomTreeNodeElement(current, root);
             if (currentEl) elements.push(currentEl);
             if (!current || !current.children || current.children.length === 0) return;
             current.children.forEach((child) => walk(child));
@@ -1670,6 +1949,184 @@ export const ui = {
         removedGroup.clear();
         if (refreshedParent) refreshedParent.classList.remove('dom-parent-highlight');
         await ui.wait(120);
+    },
+    animateDetachedDomPropertyMutation: async ({ targetNode, sourceTokenId = null, payload = null, property = '', applyMutation = null }) => {
+        if (ui.isStopping || !targetNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('memory');
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(180);
+        const portalPanel = ui.openDetachedDomPortal(targetNode, 'Noeud hors DOM');
+        if (!portalPanel) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.wait(200);
+        const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
+        const targetEl = ui.getDomTreeNodeElement(targetNode, portalPanel);
+        if (!targetEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.hideDetachedDomPortal();
+            return;
+        }
+        const replacedNodes = (property === 'innerText' || property === 'innerHTML' || property === 'textContent') ? (targetNode.children || []) : [];
+        const replacedEls = replacedNodes.flatMap((child) => ui.getDomTreeSubtreeElements(child, portalPanel));
+        const attrEls = ui.getDomAttributeElements(targetEl, property);
+        const useGroupedReplacement = (property === 'innerText' || property === 'innerHTML' || property === 'textContent');
+        const groupHighlight = (useGroupedReplacement && replacedEls.length > 0) ? ui.createDomGroupHighlight(replacedEls) : { box: null, clear: () => {} };
+        const insertionTarget = (useGroupedReplacement && replacedEls.length === 0)
+            ? (() => {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'dom-tree-node dom-insert-target dom-insert-space detached-dom-placeholder';
+                placeholder.innerHTML = '<span class="dom-tree-attr">insertion</span>';
+                targetEl.insertAdjacentElement('afterend', placeholder);
+                return placeholder;
+            })()
+            : null;
+        const flyTarget = groupHighlight.box || insertionTarget || targetEl;
+        const flowEls = [sourceEl, targetEl].filter(Boolean);
+        targetEl.classList.add('dom-parent-highlight');
+        if (!groupHighlight.box) replacedEls.forEach((nodeEl) => nodeEl.classList.add('dom-replaced-highlight'));
+        ui.setDomAttributeHighlight(attrEls, true);
+        if (replacedEls.length > 0 && !groupHighlight.box) flyTarget.classList.add('dom-insert-space');
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
+        await ui.wait(200);
+        if (sourceEl) await ui.flyHelper(payload, sourceEl, flyTarget, false);
+        await ui.wait(180);
+        if (typeof applyMutation === 'function') await applyMutation();
+        ui.renderDetachedDomPortalTree(targetNode);
+        const refreshedTarget = ui.getDomTreeNodeElement(targetNode, portalPanel);
+        const refreshedAttrEls = ui.getDomAttributeElements(refreshedTarget, property);
+        if (refreshedTarget) refreshedTarget.classList.add('dom-parent-highlight');
+        ui.setDomAttributeHighlight(refreshedAttrEls, true);
+        await ui.wait(240);
+        targetEl.classList.remove('dom-parent-highlight');
+        if (!groupHighlight.box) flyTarget.classList.remove('dom-insert-space');
+        replacedEls.forEach((nodeEl) => nodeEl.classList.remove('dom-replaced-highlight'));
+        groupHighlight.clear();
+        if (insertionTarget) insertionTarget.remove();
+        if (refreshedTarget) refreshedTarget.classList.remove('dom-parent-highlight');
+        ui.setDomAttributeHighlight(attrEls, false);
+        ui.setDomAttributeHighlight(refreshedAttrEls, false);
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
+        await ui.wait(160);
+        ui.hideDetachedDomPortal();
+    },
+    animateDetachedDomAppendMutation: async ({ parentNode, childNode = null, sourceTokenId = null, applyMutation = null }) => {
+        if (ui.isStopping || !parentNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('memory');
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(180);
+        const portalPanel = ui.openDetachedDomPortal(parentNode, 'Noeud hors DOM');
+        if (!portalPanel) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.wait(200);
+        const parentEl = ui.getDomTreeNodeElement(parentNode, portalPanel);
+        if (!parentEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.hideDetachedDomPortal();
+            return;
+        }
+        const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
+        const insertionTarget = document.createElement('div');
+        insertionTarget.className = 'dom-tree-node dom-insert-target dom-insert-space detached-dom-placeholder';
+        insertionTarget.innerHTML = '<span class="dom-tree-attr">append</span>';
+        const parentIndent = parseFloat(parentEl.style.marginLeft || getComputedStyle(parentEl).marginLeft || '0') || 0;
+        const childIndent = parentIndent + 18;
+        insertionTarget.style.marginLeft = `${childIndent}px`;
+        insertionTarget.style.width = `calc(100% - ${childIndent}px)`;
+        parentEl.insertAdjacentElement('afterend', insertionTarget);
+        const flowEls = [sourceEl, parentEl].filter(Boolean);
+        parentEl.classList.add('dom-parent-highlight');
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
+        await ui.wait(200);
+        if (sourceEl) {
+            if (childNode && (childNode.__domType === 'element' || childNode.__domType === 'text')) await ui.flyDomNodeFromToken(childNode, sourceEl, insertionTarget, false);
+            else await ui.flyHelper(childNode, sourceEl, insertionTarget, false);
+        }
+        await ui.wait(120);
+        if (typeof applyMutation === 'function') await applyMutation();
+        ui.renderDetachedDomPortalTree(parentNode);
+        const refreshedParent = ui.getDomTreeNodeElement(parentNode, portalPanel);
+        const newChildEl = childNode ? ui.getDomTreeNodeElement(childNode, portalPanel) : null;
+        if (refreshedParent) refreshedParent.classList.add('dom-parent-highlight');
+        if (newChildEl) newChildEl.classList.add('dom-highlight');
+        await ui.wait(260);
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
+        parentEl.classList.remove('dom-parent-highlight');
+        insertionTarget.remove();
+        if (refreshedParent) refreshedParent.classList.remove('dom-parent-highlight');
+        if (newChildEl) newChildEl.classList.remove('dom-highlight');
+        await ui.wait(140);
+        ui.hideDetachedDomPortal();
+    },
+    animateDetachedDomRemoveMutation: async ({ parentNode, removedNode = null, sourceTokenId = null, applyMutation = null }) => {
+        if (ui.isStopping || !parentNode) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        if (ui.skipMode) {
+            await ui.ensureDrawerOpen('memory');
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.ensureDrawerOpen('memory');
+        await ui.wait(180);
+        const portalPanel = ui.openDetachedDomPortal(parentNode, 'Noeud hors DOM');
+        if (!portalPanel) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            return;
+        }
+        await ui.wait(200);
+        const parentEl = ui.getDomTreeNodeElement(parentNode, portalPanel);
+        if (!parentEl) {
+            if (typeof applyMutation === 'function') await applyMutation();
+            ui.hideDetachedDomPortal();
+            return;
+        }
+        const removedEl = removedNode ? ui.getDomTreeNodeElement(removedNode, portalPanel) : null;
+        const removedSubtreeEls = removedNode ? ui.getDomTreeSubtreeElements(removedNode, portalPanel) : [];
+        const removedGroup = removedSubtreeEls.length > 0 ? ui.createDomGroupHighlight(removedSubtreeEls) : { box: null, clear: () => {} };
+        const removeTarget = removedGroup.box || removedEl || parentEl;
+        const sourceEl = sourceTokenId ? document.getElementById(sourceTokenId) : null;
+        const flowEls = [sourceEl, removeTarget].filter(Boolean);
+        parentEl.classList.add('dom-parent-highlight');
+        if (!removedGroup.box && removedEl) removedEl.classList.add('dom-replaced-highlight');
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, true);
+        await ui.wait(200);
+        if (sourceEl && removedNode) await ui.flyDomNodeFromToken(removedNode, sourceEl, removeTarget, false);
+        if (removeTarget) {
+            removeTarget.classList.add('dom-remove-leave');
+            await ui.wait(300);
+        }
+        if (typeof applyMutation === 'function') await applyMutation();
+        ui.renderDetachedDomPortalTree(parentNode);
+        const refreshedParent = ui.getDomTreeNodeElement(parentNode, portalPanel);
+        if (refreshedParent) refreshedParent.classList.add('dom-parent-highlight');
+        await ui.wait(220);
+        if (flowEls.length > 0) ui.setFlowHighlight(flowEls, false);
+        parentEl.classList.remove('dom-parent-highlight');
+        if (removedEl) removedEl.classList.remove('dom-replaced-highlight');
+        if (removeTarget) removeTarget.classList.remove('dom-remove-leave');
+        removedGroup.clear();
+        if (refreshedParent) refreshedParent.classList.remove('dom-parent-highlight');
+        await ui.wait(150);
+        ui.hideDetachedDomPortal();
     },
     renderDomPanel: () => {
         const container = document.getElementById('view-dom');

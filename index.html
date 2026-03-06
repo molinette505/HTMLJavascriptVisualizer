@@ -47,7 +47,9 @@
             <span class="load-label">Scenarios (JS / HTML)</span>
             <select id="load-scenario-select"></select>
             <button onclick="app.loadSelectedScenario()">Load</button>
+            <button class="btn-secondary" onclick="app.pickAndLoadHtmlFile()">Fichier HTML...</button>
             <button class="btn-secondary" onclick="app.toggleLoadPopup()">Fermer</button>
+            <input id="load-html-file-input" type="file" accept=".html,.htm,text/html" hidden>
         </div>
 
         <div id="options-popup" class="event-popup options-popup">
