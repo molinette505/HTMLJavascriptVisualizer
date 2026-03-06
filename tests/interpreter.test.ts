@@ -510,6 +510,23 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'len')).toBe(14);
   });
 
+  it('gere les echappements dans les strings entre guillemets', async () => {
+    const interpreter = await runProgram(`
+      let titre = "Fiche personnage";
+      let description = "Cette fiche a ete generee en JS.";
+      let fiche = "<div class=\\"fiche-personnage\\">\\n"
+        + "  <h2>" + titre + "</h2>\\n"
+        + "  <p>" + description + "</p>\\n"
+        + "</div>";
+      let apostrophe = 'L\\'ecole';
+      let chemin = "C:\\\\temp";
+    `);
+    expect(getGlobalValue(interpreter, 'fiche')).toContain('<div class="fiche-personnage">');
+    expect(getGlobalValue(interpreter, 'fiche')).toContain('\n  <h2>Fiche personnage</h2>\n');
+    expect(getGlobalValue(interpreter, 'apostrophe')).toBe("L'ecole");
+    expect(getGlobalValue(interpreter, 'chemin')).toBe('C:\\temp');
+  });
+
   it('execute array.slice sans modifier le tableau original', async () => {
     const interpreter = await runProgram(`
       let arr = [1, 2, 3, 4];
