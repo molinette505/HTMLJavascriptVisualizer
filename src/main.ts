@@ -45,6 +45,7 @@ document.getElementById('code-input').addEventListener('keydown', (e) => {
 
 // --- INIT & EVENTS ---
 document.getElementById('code-input').value = DEFAULT_CODE;
+app.initializeEditorBuffers(DEFAULT_CODE);
 editor.adjustHeight();
 editor.refresh();
 refreshIcons();

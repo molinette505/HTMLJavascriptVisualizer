@@ -5,10 +5,21 @@ import { ui } from './ui';
 
 export const editor = {
     history: [DEFAULT_CODE], historyIdx: 0, timeout: null,
-    refresh: () => { const text = document.getElementById('code-input').value; ui.renderCode(new Lexer(text).tokenize()); ui.updateLineNumbers(text); },
+    refresh: () => {
+        const text = document.getElementById('code-input').value;
+        const mode = (window.app && typeof window.app.getCurrentEditorMode === 'function')
+            ? window.app.getCurrentEditorMode()
+            : 'js';
+        if (mode === 'js') ui.renderCode(new Lexer(text).tokenize());
+        else ui.renderPlainCode(text, mode);
+        ui.updateLineNumbers(text);
+    },
     handleInput: () => { 
         // Auto-grow logic to fix cursor issues
         editor.adjustHeight();
+        if (window.app && typeof window.app.onEditorInput === 'function') {
+            window.app.onEditorInput(document.getElementById('code-input').value);
+        }
         editor.refresh(); 
         if (editor.timeout) clearTimeout(editor.timeout); 
         editor.timeout = setTimeout(() => editor.saveHistory(), 500); 

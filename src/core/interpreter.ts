@@ -489,8 +489,7 @@ export class Interpreter {
                             }
                         }
                         if (targetName && targetName !== 'document') {
-                            const stayOnDom = domNodeVisible && (prop === 'innerText' || prop === 'innerHTML');
-                            await this.ui.updateMemory(this.scopeStack, targetName, 'write', null, !stayOnDom);
+                            await this.ui.updateMemory(this.scopeStack, targetName, 'write', null, !domNodeVisible);
                         }
                     } else {
                         obj[prop] = val;
@@ -1050,7 +1049,9 @@ export class Interpreter {
                                 }
                             }
                             this.refreshDomView();
-                            if (domOwnerName && domOwnerName !== 'document') await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write');
+                            if (domOwnerName && domOwnerName !== 'document') {
+                                await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write', null, !domNodeVisible);
+                            }
                             const callTargetTokenId = this.getCallReplacementTokenId(node);
                             node.resultTokenId = callTargetTokenId;
                             this.ui.replaceTokenText(callTargetTokenId, result, true);
@@ -1094,7 +1095,9 @@ export class Interpreter {
                                 }
                             }
                             this.refreshDomView();
-                            if (domOwnerName && domOwnerName !== 'document') await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write');
+                            if (domOwnerName && domOwnerName !== 'document') {
+                                await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write', null, !domNodeVisible);
+                            }
                             const callTargetTokenId = this.getCallReplacementTokenId(node);
                             node.resultTokenId = callTargetTokenId;
                             this.ui.replaceTokenText(callTargetTokenId, result, true);
@@ -1201,7 +1204,9 @@ export class Interpreter {
                                     }
                                 }
                                 this.refreshDomView();
-                                if (arrName && arrName !== 'document') await this.ui.updateMemory(this.scopeStack, arrName, 'write');
+                                if (arrName && arrName !== 'document') {
+                                    await this.ui.updateMemory(this.scopeStack, arrName, 'write', null, !domNodeVisible);
+                                }
                                 const callTargetTokenId = this.getCallReplacementTokenId(node);
                                 node.resultTokenId = callTargetTokenId;
                                 this.ui.replaceTokenText(callTargetTokenId, result, true);
@@ -1240,7 +1245,9 @@ export class Interpreter {
                                     }
                                 }
                                 this.refreshDomView();
-                                if (arrName && arrName !== 'document') await this.ui.updateMemory(this.scopeStack, arrName, 'write');
+                                if (arrName && arrName !== 'document') {
+                                    await this.ui.updateMemory(this.scopeStack, arrName, 'write', null, !domNodeVisible);
+                                }
                                 const callTargetTokenId = this.getCallReplacementTokenId(node);
                                 node.resultTokenId = callTargetTokenId;
                                 this.ui.replaceTokenText(callTargetTokenId, result, true);

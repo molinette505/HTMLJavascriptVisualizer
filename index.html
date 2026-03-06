@@ -23,6 +23,11 @@
                 <button id="btn-options" class="icon-btn" onclick="ui.toggleOptionsPopup()" title="Options"><i data-lucide="sliders-horizontal"></i></button>
             </div>
         </div>
+        <div class="editor-mode-group" role="group" aria-label="Mode d'edition">
+            <button id="btn-mode-js" class="mode-btn active" onclick="app.setEditorMode('js')">JS</button>
+            <button id="btn-mode-html" class="mode-btn" onclick="app.setEditorMode('html')">HTML</button>
+            <button id="btn-mode-css" class="mode-btn" onclick="app.setEditorMode('css')">CSS</button>
+        </div>
         <div class="settings-group">
             <div class="control-group">
                 <span>Vit.</span>
@@ -119,7 +124,11 @@
                 <div class="console-box" id="console-output"></div>
             </div>
             <div id="view-dom" class="drawer-content">
+                <div class="dom-toolbar">
+                    <button id="btn-toggle-dom-render" class="toggle-btn" onclick="ui.toggleDomRender()">Rendu OFF</button>
+                </div>
                 <div id="dom-view-tree" class="dom-view active"></div>
+                <div id="dom-view-render" class="dom-view dom-view-render"></div>
             </div>
         </div>
     </div>

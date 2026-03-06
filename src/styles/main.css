@@ -207,6 +207,39 @@
         .lucide { width: 18px; height: 18px; stroke-width: 2.5px; }
 
         .settings-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .editor-mode-group {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .mode-btn {
+            background: transparent;
+            color: var(--text-dim);
+            border: 0;
+            border-right: 1px solid rgba(148, 163, 184, 0.28);
+            min-width: 46px;
+            height: 30px;
+            padding: 0 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            touch-action: manipulation;
+        }
+        .mode-btn:last-child { border-right: 0; }
+        .mode-btn.active {
+            background: rgba(59, 130, 246, 0.22);
+            color: #dbeafe;
+        }
+        .mode-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
         .control-group {
             display: flex; align-items: center; gap: 2px;
             background: rgba(0,0,0,0.2); padding: 3px 6px;
@@ -357,6 +390,8 @@
         .tok-operator { color: #56b6c2; }
         .tok-punctuation { color: #abb2bf; }
         .tok-ident { color: #e2e8f0; }
+        .tok-plain-html { color: #f8fafc; }
+        .tok-plain-css { color: #bae6fd; }
 
         .exec-line {
             position: absolute; left: 0; 
@@ -499,6 +534,16 @@
 
         .drawer-content { flex: 1; overflow: hidden; display: none; position: relative; }
         .drawer-content.active { display: flex; flex-direction: column; }
+        .dom-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(15, 23, 42, 0.8);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
 
         .dom-view {
             display: none;
@@ -508,6 +553,25 @@
         }
         .dom-view.active {
             display: block;
+        }
+        .dom-view-render {
+            display: none;
+        }
+        #view-dom.show-render #dom-view-tree {
+            flex: 1;
+            min-height: 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        }
+        #view-dom.show-render #dom-view-render {
+            display: block;
+            flex: 1;
+            min-height: 0;
+        }
+        .dom-render-frame {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #ffffff;
         }
         #dom-view-tree {
             padding: 12px;
@@ -682,6 +746,9 @@
             #memory-container { padding-bottom: 0; }
             .mobile-tools-container { display: none !important; }
         }
+        @media (max-width: 1024px) {
+            .editor-mode-group { order: 3; }
+        }
 
         /* --- MEMORY & CONSOLE --- */
         #memory-container { 
@@ -747,6 +814,43 @@
             white-space: pre-wrap;
             overflow-wrap: anywhere;
             line-height: 1.35;
+        }
+        .mem-val[data-dom-preview="true"] {
+            cursor: zoom-in;
+        }
+        .mem-dom-inline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            max-width: 100%;
+            line-height: 1.25;
+            text-align: center;
+        }
+        .mem-dom-inline .dom-tree-attrs {
+            display: inline-flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .mem-dom-inline .dom-tree-attr {
+            font-size: 11px;
+            opacity: 0.95;
+        }
+        .mem-dom-inline-children {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 18px;
+            padding: 0 6px;
+            border: 1px dashed rgba(148, 163, 184, 0.65);
+            border-radius: 999px;
+            color: #cbd5e1;
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(15, 23, 42, 0.5);
         }
         .memory-array-portal {
             position: absolute;

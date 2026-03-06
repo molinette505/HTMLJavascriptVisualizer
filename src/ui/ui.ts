@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { TokenType, Lexer } from '../core/language';
 import { formatValue } from '../core/config';
-import { isVirtualDomValue } from '../core/virtualDom';
+import { isVirtualDomValue, serializeVirtualDocument } from '../core/virtualDom';
 import { refreshIcons } from './icons';
 
 const escapeHtml = (value) => String(value)
@@ -140,6 +140,13 @@ const applyToggleButtonState = (button, isOn) => {
     button.classList.toggle('is-on', isOn);
     button.setAttribute('aria-pressed', isOn ? 'true' : 'false');
     button.setAttribute('data-state', isOn ? 'on' : 'off');
+};
+
+const buildDomPreviewDocument = (domDocument, cssText = '') => {
+    const bodyMarkup = domDocument ? serializeVirtualDocument(domDocument, false) : '<body></body>';
+    const safeCss = String(cssText || '').replace(/<\/style/gi, '<\\/style');
+    const styleBlock = safeCss.trim() ? `<style>${safeCss}</style>` : '';
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8">${styleBlock}</head>${bodyMarkup}</html>`;
 };
 
 const truncateConsoleText = (value, max = 140) => {
@@ -378,6 +385,44 @@ const buildDomTreeMarkup = (node, depth = 0, includeIds = true) => {
     return `${self}${children}`;
 };
 
+const buildDomInlineValueMarkup = (node) => {
+    if (!node) return '<span class="mem-dom-inline-empty">dom-node</span>';
+    if (node.__domType === 'text') {
+        const trimmed = String(node.textContent || '').trim();
+        const text = escapeHtml(trimmed.length > 28 ? `${trimmed.slice(0, 28)}...` : trimmed || '(vide)');
+        return `<span class="mem-dom-inline mem-dom-inline-text"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr">"${text}"</span></span>`;
+    }
+    if (node.__domType !== 'element') return `<span class="mem-dom-inline">${escapeHtml(String(formatValue(node)))}</span>`;
+
+    const tag = escapeHtml(String(node.tagName || 'node').toLowerCase());
+    const idPart = node.id ? `<span class="dom-tree-id">#${escapeHtml(node.id)}</span>` : '';
+    const classes = String(node.className || '')
+        .split(/\s+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((className) => `.${escapeHtml(className)}`)
+        .join(' ');
+    const classPart = classes ? `<span class="dom-tree-class">${classes}</span>` : '';
+    const attrs = Object.keys(node.attributes || {})
+        .filter((name) => name !== 'id' && name !== 'class')
+        .map((name) => {
+            const raw = String(node.attributes[name] || '');
+            const compact = raw.length > 32 ? `${raw.slice(0, 32)}...` : raw;
+            return `<span class="dom-tree-attr">[${escapeHtml(name)}="${escapeHtml(compact)}"]</span>`;
+        })
+        .join('');
+    const attrsPart = attrs ? `<span class="dom-tree-attrs">${attrs}</span>` : '';
+    const hasChildren = Array.isArray(node.children)
+        && node.children.some((child) => {
+            if (!child) return false;
+            if (child.__domType === 'element') return true;
+            if (child.__domType === 'text') return String(child.textContent || '').trim().length > 0;
+            return false;
+        });
+    const childrenHint = hasChildren ? '<span class="mem-dom-inline-children">...</span>' : '';
+    return `<span class="mem-dom-inline"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}${childrenHint}</span>`;
+};
+
 const mapDomPropertyToAttr = (property) => {
     const normalized = String(property || '').trim();
     if (!normalized) return '';
@@ -553,7 +598,9 @@ export const ui = {
     codeValueTooltipAnchorEl: null,
     codeValueTooltipBound: false,
     domDocument: null,
+    domCss: '',
     domViewMode: 'tree',
+    showDomRender: false,
     showFlowLine: true,
     showMemoryTypes: false,
     showMemoryAddresses: false,
@@ -583,6 +630,17 @@ export const ui = {
         ui.updateFlowLineControl();
         ui.updateMemoryTypesControl();
         ui.updateMemoryAddressesControl();
+    },
+    updateDomRenderToggleControl: () => {
+        const button = document.getElementById('btn-toggle-dom-render');
+        if (!button) return;
+        button.innerText = ui.showDomRender ? 'Rendu ON' : 'Rendu OFF';
+        button.classList.toggle('is-on', ui.showDomRender);
+        button.setAttribute('aria-pressed', ui.showDomRender ? 'true' : 'false');
+    },
+    toggleDomRender: (forceState = null) => {
+        ui.showDomRender = forceState === null ? !ui.showDomRender : Boolean(forceState);
+        ui.renderDomPanel();
     },
     refreshMemoryFromSnapshot: () => {
         if (!ui.lastScopeStack) return;
@@ -972,6 +1030,7 @@ export const ui = {
         document.querySelectorAll('.drawer-content').forEach(c => c.classList.remove('active'));
         const viewElement = document.getElementById(`view-${tabName}`);
         if (viewElement) viewElement.classList.add('active');
+        if (tabName === 'dom') ui.renderDomPanel();
     },
     
     ensureDrawerOpen: (tabName) => {
@@ -1126,6 +1185,19 @@ export const ui = {
         ui.currentPropertyTokenSnapshot.clear();
         ui.modifiedTokens.clear(); ui.lockedTokens.clear();
     },
+    renderPlainCode: (text, mode = 'text') => {
+        const display = document.getElementById('code-display');
+        if (!display) return;
+        const className = mode === 'html'
+            ? 'tok-plain-html'
+            : mode === 'css'
+                ? 'tok-plain-css'
+                : 'tok-ident';
+        display.innerHTML = `<span class="${className}">${escapeHtml(String(text || ''))}</span>`;
+        ui.currentPropertyTokenSnapshot.clear();
+        ui.modifiedTokens.clear();
+        ui.lockedTokens.clear();
+    },
     resetDisplay: (options = {}) => { 
         const keepConsole = typeof options === 'boolean' ? options : Boolean(options.keepConsole);
         const globalEditor = window.editor;
@@ -1172,6 +1244,7 @@ export const ui = {
         
         document.getElementById('btn-next').disabled = !running; 
         document.getElementById('btn-skip').disabled = !running; 
+        document.querySelectorAll('.mode-btn').forEach((button) => { button.disabled = running; });
         document.getElementById('code-input').readOnly = running; 
         document.getElementById('code-input').style.pointerEvents = running ? 'none' : 'auto';
         document.getElementById('code-display').style.pointerEvents = running ? 'auto' : 'none';
@@ -1189,8 +1262,9 @@ export const ui = {
         document.getElementById('btn-skip').disabled = true;
     },
     switchDomView: () => {},
-    updateDom: (domDocument) => {
+    updateDom: (domDocument, domCss = undefined) => {
         ui.domDocument = domDocument || null;
+        if (domCss !== undefined) ui.domCss = String(domCss || '');
         ui.renderDomPanel();
     },
     getDomTreeNodeElement: (node) => {
@@ -1598,9 +1672,26 @@ export const ui = {
         await ui.wait(120);
     },
     renderDomPanel: () => {
+        const container = document.getElementById('view-dom');
         const treeView = document.getElementById('dom-view-tree');
-        if (!treeView) return;
+        const renderView = document.getElementById('dom-view-render');
+        if (!treeView || !container || !renderView) return;
+
+        container.classList.toggle('show-render', ui.showDomRender);
+        ui.updateDomRenderToggleControl();
+
         treeView.innerHTML = ui.domDocument ? buildDomTreeMarkup(ui.domDocument.body, 0) : '<div class="dom-tree-empty">Aucun document HTML charge.</div>';
+        if (!ui.showDomRender) {
+            renderView.innerHTML = '';
+            return;
+        }
+        const iframe = document.createElement('iframe');
+        iframe.className = 'dom-render-frame';
+        iframe.setAttribute('title', 'Apercu HTML');
+        iframe.setAttribute('sandbox', 'allow-same-origin');
+        iframe.srcdoc = buildDomPreviewDocument(ui.domDocument, ui.domCss);
+        renderView.innerHTML = '';
+        renderView.appendChild(iframe);
     },
     log: (msg, type='info') => {
         if(ui.isStopping) return;
@@ -1809,6 +1900,7 @@ export const ui = {
                 const itemType = getMemoryTypeLabel(item, hasValue);
                 const hasDomPreview = hasValue && isVirtualDomValue(item);
                 const previewAttrs = hasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${valueId}"` : '';
+                const valueMarkup = hasDomPreview ? buildDomInlineValueMarkup(item) : escapeHtml(displayValue);
                 const metaHtml = buildMemoryMetaHtml({
                     typeLabel: itemType,
                     address: '',
@@ -1816,7 +1908,7 @@ export const ui = {
                     showAddress: false
                 });
                 row.className = `memory-cell array-element ${metaHtml ? 'has-meta' : 'no-meta'}`;
-                row.innerHTML = `${metaHtml}<span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${escapeHtml(displayValue)}</span>`;
+                row.innerHTML = `${metaHtml}<span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${valueMarkup}</span>`;
                 if (hasDomPreview) ui.memoryDomPreviewRefs.set(valueId, item);
                 if (variableName === flashVarName && isTopLevel && flashIndex === idx) {
                     if (flashType === 'insert' || flashType === 'delete') row.classList.add(`flash-${flashType}`);
@@ -1871,13 +1963,14 @@ export const ui = {
                 const topValueId = Array.isArray(v.value) ? `mem-header-${name}` : `mem-val-${name}`;
                 const topHasDomPreview = isVirtualDomValue(v.value);
                 const topPreviewAttrs = topHasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${topValueId}"` : '';
+                const topValueMarkup = topHasDomPreview ? buildDomInlineValueMarkup(v.value) : escapeHtml(valStr);
                 const metaHtml = buildMemoryMetaHtml({
                     typeLabel: valueType,
                     address: v.addr || '',
                     showType: ui.showMemoryTypes,
                     showAddress: ui.showMemoryAddresses
                 });
-                row.innerHTML = `${metaHtml}<span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${escapeHtml(valStr)}</span>`;
+                row.innerHTML = `${metaHtml}<span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${topValueMarkup}</span>`;
                 if (topHasDomPreview) ui.memoryDomPreviewRefs.set(topValueId, v.value);
                 row.className = `memory-cell ${metaHtml ? 'has-meta' : 'no-meta'}`;
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');

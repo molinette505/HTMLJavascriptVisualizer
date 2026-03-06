@@ -5,14 +5,28 @@ import { createVirtualDocument } from '../core/virtualDom';
 import { ui, consoleUI } from './ui';
 import { editor } from './editor';
 
+const EDITOR_MODES = ['js', 'html', 'css'];
+const isEditorMode = (mode) => EDITOR_MODES.includes(mode);
+
 const extractScenarioHtml = (rawHtml) => {
     const source = String(rawHtml || '').trim();
-    if (!source) return { code: '', domHtml: '<body></body>' };
-    const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/i;
-    const match = source.match(scriptRegex);
-    const code = match ? String(match[1] || '').trim() : '';
-    const domHtml = (match ? source.replace(scriptRegex, '').trim() : source) || '<body></body>';
-    return { code, domHtml };
+    if (!source) return { code: '', css: '', domHtml: '<body></body>' };
+
+    const scriptBlocks = [];
+    const styleBlocks = [];
+    const withoutScripts = source.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_, content = '') => {
+        scriptBlocks.push(String(content));
+        return '';
+    });
+    const withoutScriptsAndStyles = withoutScripts.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, content = '') => {
+        styleBlocks.push(String(content));
+        return '';
+    });
+
+    const code = scriptBlocks.join('\n\n').trim();
+    const css = styleBlocks.join('\n\n').trim();
+    const domHtml = withoutScriptsAndStyles.trim() || '<body></body>';
+    return { code, css, domHtml };
 };
 
 const setEditorCode = (nextCode) => {
@@ -28,6 +42,8 @@ const setEditorCode = (nextCode) => {
 const normalizeExternalContent = (payload) => {
     let code = null;
     let domHtml = null;
+    let css = null;
+    const cssChunks = [];
     let label = 'Externe';
     let clearConsole = true;
     let run = false;
@@ -43,9 +59,12 @@ const normalizeExternalContent = (payload) => {
             const parsed = extractScenarioHtml(payload.html);
             domHtml = parsed.domHtml;
             if (code === null && parsed.code) code = parsed.code;
+            if (parsed.css) cssChunks.push(parsed.css);
         } else if (typeof payload.domHtml === 'string') {
             domHtml = payload.domHtml || '<body></body>';
         }
+        if (typeof payload.css === 'string') cssChunks.push(payload.css);
+        else if (typeof payload.domCss === 'string') cssChunks.push(payload.domCss);
 
         if (typeof payload.label === 'string' && payload.label.trim()) label = payload.label.trim();
         else if (typeof payload.source === 'string' && payload.source.trim()) label = payload.source.trim();
@@ -56,14 +75,16 @@ const normalizeExternalContent = (payload) => {
         if (payload.ui && typeof payload.ui === 'object') uiOptions = payload.ui;
     }
 
+    const finalCss = cssChunks.length > 0 ? cssChunks.join('\n\n') : css;
     return {
         code,
         domHtml,
+        css: finalCss,
         label,
         clearConsole,
         run,
         uiOptions,
-        hasContent: code !== null || domHtml !== null
+        hasContent: code !== null || domHtml !== null || finalCss !== null
     };
 };
 
@@ -73,10 +94,69 @@ export const app = {
     eventFunctionName: 'onClick',
     scenarios: SCENARIOS,
     currentDomHtml: '<body></body>',
+    currentDomCss: '',
+    currentEditorMode: 'js',
+    editorBuffers: {
+        js: '',
+        html: '<body></body>',
+        css: ''
+    },
     pendingScenarioLoadTimer: null,
     embedUiOptions: {
         showLoadButton: true,
         showFlowLineToggle: true
+    },
+
+    syncCurrentEditorBuffer: () => {
+        const input = document.getElementById('code-input');
+        if (!input || !isEditorMode(app.currentEditorMode)) return;
+        app.editorBuffers[app.currentEditorMode] = String(input.value || '');
+    },
+    onEditorInput: (nextText) => {
+        if (!isEditorMode(app.currentEditorMode)) return;
+        app.editorBuffers[app.currentEditorMode] = String(nextText || '');
+    },
+    updateEditorModeControls: () => {
+        EDITOR_MODES.forEach((mode) => {
+            const button = document.getElementById(`btn-mode-${mode}`);
+            if (!button) return;
+            button.classList.toggle('active', app.currentEditorMode === mode);
+            button.setAttribute('aria-pressed', app.currentEditorMode === mode ? 'true' : 'false');
+        });
+    },
+    applyEditorModeToInput: () => {
+        const nextCode = String(app.editorBuffers[app.currentEditorMode] || '');
+        setEditorCode(nextCode);
+        app.updateEditorModeControls();
+    },
+    setEditorMode: (mode) => {
+        if (!isEditorMode(mode)) return false;
+        if (app.currentEditorMode === mode) {
+            app.updateEditorModeControls();
+            return true;
+        }
+        app.syncCurrentEditorBuffer();
+        app.currentEditorMode = mode;
+        app.applyEditorModeToInput();
+        return true;
+    },
+    getCurrentEditorMode: () => app.currentEditorMode,
+    hydrateDomStateFromBuffers: () => {
+        const parsed = extractScenarioHtml(app.editorBuffers.html || '<body></body>');
+        app.currentDomHtml = parsed.domHtml || '<body></body>';
+        const cssParts = [];
+        if (parsed.css) cssParts.push(parsed.css);
+        if (app.editorBuffers.css) cssParts.push(String(app.editorBuffers.css));
+        app.currentDomCss = cssParts.join('\n\n').trim();
+    },
+    initializeEditorBuffers: (defaultJsCode = '') => {
+        app.editorBuffers.js = String(defaultJsCode || '');
+        app.editorBuffers.html = '<body></body>';
+        app.editorBuffers.css = '';
+        app.currentEditorMode = 'js';
+        app.hydrateDomStateFromBuffers();
+        ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
+        app.updateEditorModeControls();
     },
     
     toggleRun: () => {
@@ -85,7 +165,11 @@ export const app = {
     },
     
     start: () => {
-        const code = document.getElementById('code-input').value;
+        app.syncCurrentEditorBuffer();
+        if (app.currentEditorMode !== 'js') app.setEditorMode('js');
+        app.hydrateDomStateFromBuffers();
+        ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
+        const code = String(app.editorBuffers.js || '');
         app.isRunning = true;
         ui.setRunningState(true);
         consoleUI.clear();
@@ -171,20 +255,20 @@ export const app = {
     },
 
     applyScenario: (scenario) => {
-        const input = document.getElementById('code-input');
-        if (!input) return;
+        app.syncCurrentEditorBuffer();
         let nextCode = String(scenario.code || '');
         if (scenario.kind === 'html') {
             const parsed = extractScenarioHtml(scenario.html);
             nextCode = parsed.code;
-            app.currentDomHtml = parsed.domHtml;
-            ui.updateDom(createVirtualDocument(app.currentDomHtml));
+            app.editorBuffers.html = parsed.domHtml || '<body></body>';
+            app.editorBuffers.css = parsed.css || '';
+            app.currentDomHtml = app.editorBuffers.html;
+            app.currentDomCss = app.editorBuffers.css;
+            ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
         }
-        input.value = nextCode;
-        editor.history = [nextCode];
-        editor.historyIdx = 0;
-        editor.adjustHeight();
-        editor.refresh();
+        app.editorBuffers.js = nextCode;
+        app.currentEditorMode = 'js';
+        app.applyEditorModeToInput();
         consoleUI.clear();
         const tag = scenario.kind === 'html' ? 'HTML' : 'JS';
         ui.log(`Scenario charge: [${tag}] ${scenario.title}`, 'info');
@@ -219,16 +303,19 @@ export const app = {
         const normalized = normalizeExternalContent(payload);
         if (normalized.uiOptions) app.applyEmbedUiOptions(normalized.uiOptions);
         if (!normalized.hasContent) {
-            ui.log('Chargement externe ignore: aucun JS/HTML fourni.', 'warn');
+            ui.log('Chargement externe ignore: aucun JS/HTML/CSS fourni.', 'warn');
             return false;
         }
 
         const apply = () => {
-            if (normalized.domHtml !== null) {
-                app.currentDomHtml = normalized.domHtml || '<body></body>';
-                ui.updateDom(createVirtualDocument(app.currentDomHtml));
-            }
-            if (normalized.code !== null) setEditorCode(String(normalized.code));
+            app.syncCurrentEditorBuffer();
+            if (normalized.domHtml !== null) app.editorBuffers.html = normalized.domHtml || '<body></body>';
+            if (normalized.css !== null) app.editorBuffers.css = String(normalized.css || '');
+            if (normalized.code !== null) app.editorBuffers.js = String(normalized.code);
+            if (normalized.code !== null) app.currentEditorMode = 'js';
+            app.hydrateDomStateFromBuffers();
+            ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
+            app.applyEditorModeToInput();
             if (normalized.clearConsole) consoleUI.clear();
             ui.log(`Contenu charge (${normalized.label}).`, 'info');
             if (normalized.run) app.start();
