@@ -46,6 +46,7 @@ export class Interpreter {
         this.initialDomHtml = options.domHtml || '<body></body>';
         this.domDocument = createVirtualDocument(this.initialDomHtml);
         this.lastPausedLine = 0;
+        this.isHandlingEvent = false;
     }
 
     async start(code) { 
@@ -59,6 +60,7 @@ export class Interpreter {
         this.globalScope.initialize('document', this.domDocument);
         this.scopeStack = [this.globalScope]; 
         this.lastPausedLine = 0;
+        this.isHandlingEvent = false;
         if (typeof this.ui.updateDom === 'function') this.ui.updateDom(this.domDocument);
         await this.ui.updateMemory(this.scopeStack); 
         try { 
@@ -87,11 +89,15 @@ export class Interpreter {
     
     async invokeEvent(funcName) {
         if (this.shouldStop) return;
+        if (this.isHandlingEvent) return;
+        this.isHandlingEvent = true;
         this.callStack = [];
         
         // Désactiver les contrôles
-        document.getElementById('btn-trigger').disabled = true;
-        document.getElementById('btn-set-event').disabled = true;
+        const triggerBtn = (typeof document !== 'undefined') ? document.getElementById('btn-trigger') : null;
+        const setEventBtn = (typeof document !== 'undefined') ? document.getElementById('btn-set-event') : null;
+        if (triggerBtn) triggerBtn.disabled = true;
+        if (setEventBtn) setEventBtn.disabled = true;
 
         // Simuler un noeud d'appel
         const dummyId = new Identifier(funcName, 0);
@@ -111,10 +117,197 @@ export class Interpreter {
         } finally {
             this.ui.highlightLines([]); 
             this.ui.resetVisuals();
+            this.isHandlingEvent = false;
             // Réactiver les contrôles si on n'a pas stoppé
             if (!this.shouldStop) {
-                document.getElementById('btn-trigger').disabled = false;
-                document.getElementById('btn-set-event').disabled = false;
+                if (triggerBtn) triggerBtn.disabled = false;
+                if (setEventBtn) setEventBtn.disabled = false;
+            }
+        }
+    }
+
+    findDomParent(rootNode, targetNode) {
+        if (!rootNode || !targetNode || !rootNode.children || rootNode.children.length === 0) return null;
+        for (const child of rootNode.children) {
+            if (child === targetNode) return rootNode;
+            const nested = this.findDomParent(child, targetNode);
+            if (nested) return nested;
+        }
+        return null;
+    }
+
+    resolveDomNodeByPath(path) {
+        const root = this.domDocument && this.domDocument.body ? this.domDocument.body : null;
+        if (!root) return null;
+        const normalized = String(path || '').trim();
+        if (!normalized || normalized === '0') return root;
+        const parts = normalized.split('.').map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry));
+        if (parts.length === 0) return root;
+        let cursor = root;
+        const startIndex = parts[0] === 0 ? 1 : 0;
+        for (let index = startIndex; index < parts.length; index++) {
+            const childIndex = parts[index];
+            if (!cursor || !Array.isArray(cursor.children) || childIndex < 0 || childIndex >= cursor.children.length) return cursor;
+            cursor = cursor.children[childIndex];
+        }
+        return cursor || root;
+    }
+
+    buildDomEventPayload(targetNode, currentTargetNode, eventType = 'click') {
+        return {
+            type: String(eventType || 'click'),
+            target: targetNode || null,
+            currentTarget: currentTargetNode || targetNode || null,
+            defaultPrevented: false,
+            preventDefault() {
+                this.defaultPrevented = true;
+            }
+        };
+    }
+
+    resolveCallableFromValue(value) {
+        if (!value) return null;
+        if (value.type === 'function_decl_ref') {
+            const fnNode = value.node;
+            if (!fnNode) return null;
+            return {
+                funcNode: fnNode,
+                closureScope: value.scope || this.globalScope,
+                paramNames: fnNode.params.map((param) => param.name),
+                paramIds: fnNode.params.map((param) => param.id),
+                funcName: value.name || fnNode.name || 'anonymous'
+            };
+        }
+        if (value.type === 'arrow_func' || value.type === 'function_expr') {
+            return {
+                funcNode: value,
+                closureScope: value.scope || this.currentScope || this.globalScope,
+                paramNames: Array.isArray(value.params) ? value.params : [],
+                paramIds: Array.isArray(value.paramIds) ? value.paramIds : [],
+                funcName: value.name || 'anonymous'
+            };
+        }
+        return null;
+    }
+
+    async invokeCallableValue(callableValue, argValues = [], callName = 'anonymous', lineHint = 0) {
+        const callable = this.resolveCallableFromValue(callableValue);
+        if (!callable) throw new TypeError(`${callName} is not a function`);
+        const fnScope = new Scope(`${callable.funcName}(${callable.paramNames.join(', ')})`, callable.closureScope, this.currentScope);
+        this.scopeStack.push(fnScope);
+        const previousScope = this.currentScope;
+        let callFramePushed = false;
+        try {
+            for (let index = 0; index < callable.paramNames.length; index++) {
+                const paramName = callable.paramNames[index];
+                const paramValue = index < argValues.length ? argValues[index] : undefined;
+                fnScope.define(paramName, 'let');
+                fnScope.initialize(paramName, paramValue);
+                this.setVariableFunctionAlias(paramName, null, fnScope);
+                await this.ui.updateMemory(this.scopeStack, paramName, 'declare');
+            }
+            await this.ui.wait(300);
+            this.currentScope = fnScope;
+            await this.ui.updateMemory(this.scopeStack);
+            this.callStack.push(Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : this.lastPausedLine);
+            callFramePushed = true;
+
+            let result = undefined;
+            const body = callable.funcNode.body;
+            if (body instanceof BlockStmt) {
+                const blockResult = await this.executeBlock(body.body);
+                if (blockResult && blockResult.__isReturn) result = blockResult.value;
+            } else {
+                await this.pause(this.lastPausedLine || 1);
+                result = await this.evaluate(body);
+            }
+            return result;
+        } finally {
+            if (callFramePushed) this.callStack.pop();
+            this.currentScope = previousScope;
+            const scopeIndex = this.scopeStack.lastIndexOf(fnScope);
+            if (scopeIndex !== -1) this.scopeStack.splice(scopeIndex, 1);
+            await this.ui.updateMemory(this.scopeStack);
+        }
+    }
+
+    async executeInlineDomHandler(sourceCode, eventPayload, lineHint = 0) {
+        const code = String(sourceCode || '').trim();
+        if (!code) return;
+        const lexer = new Lexer(code);
+        const tokens = lexer.tokenize();
+        const parser = new Parser(tokens);
+        const ast = parser.parse();
+        const inlineScope = new Scope('EventInline', this.currentScope, this.currentScope);
+        this.scopeStack.push(inlineScope);
+        const previousScope = this.currentScope;
+        let callFramePushed = false;
+        try {
+            inlineScope.define('event', 'const');
+            inlineScope.initialize('event', eventPayload);
+            await this.ui.updateMemory(this.scopeStack, 'event', 'declare');
+            await this.ui.wait(200);
+            this.currentScope = inlineScope;
+            await this.ui.updateMemory(this.scopeStack);
+            this.callStack.push(Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : this.lastPausedLine);
+            callFramePushed = true;
+            await this.executeBlock(ast.body || []);
+        } finally {
+            if (callFramePushed) this.callStack.pop();
+            this.currentScope = previousScope;
+            const scopeIndex = this.scopeStack.lastIndexOf(inlineScope);
+            if (scopeIndex !== -1) this.scopeStack.splice(scopeIndex, 1);
+            await this.ui.updateMemory(this.scopeStack);
+        }
+    }
+
+    async invokeDomClick(path = '') {
+        if (this.shouldStop) return;
+        if (this.isHandlingEvent) return;
+        this.isHandlingEvent = true;
+        this.callStack = [];
+        const triggerBtn = (typeof document !== 'undefined') ? document.getElementById('btn-trigger') : null;
+        const setEventBtn = (typeof document !== 'undefined') ? document.getElementById('btn-set-event') : null;
+        if (triggerBtn) triggerBtn.disabled = true;
+        if (setEventBtn) setEventBtn.disabled = true;
+        try {
+            const clickedNode = this.resolveDomNodeByPath(path);
+            if (!clickedNode) return;
+            const targetLine = this.lastPausedLine || 1;
+            this.ui.log(`> Evenement: click`, 'info');
+            const propagation = [];
+            let cursor = clickedNode;
+            while (cursor) {
+                propagation.push(cursor);
+                cursor = this.findDomParent(this.domDocument && this.domDocument.body, cursor);
+            }
+            for (const currentTarget of propagation) {
+                if (!currentTarget || typeof currentTarget.getEventHandlers !== 'function') continue;
+                const handlers = currentTarget.getEventHandlers('click');
+                if (!Array.isArray(handlers) || handlers.length === 0) continue;
+                for (const entry of handlers) {
+                    if (!entry) continue;
+                    const payload = this.buildDomEventPayload(clickedNode, currentTarget, 'click');
+                    if (entry.kind === 'inline-attr') {
+                        await this.executeInlineDomHandler(entry.handler, payload, targetLine);
+                        continue;
+                    }
+                    await this.invokeCallableValue(entry.handler, [payload], 'click', targetLine);
+                }
+            }
+        } catch (error) {
+            await this.logRuntimeError(error, 'Erreur evenement');
+            this.stop();
+            this.ui.setRunningState(false);
+            this.ui.setEventMode(false);
+            this.ui.resetDisplay({ keepConsole: true });
+        } finally {
+            this.ui.highlightLines([]);
+            this.ui.resetVisuals();
+            this.isHandlingEvent = false;
+            if (!this.shouldStop) {
+                if (triggerBtn) triggerBtn.disabled = false;
+                if (setEventBtn) setEventBtn.disabled = false;
             }
         }
     }
@@ -818,6 +1011,7 @@ export class Interpreter {
         }
         if (node instanceof UnaryExpr) { const arg = await this.evaluate(node.arg); let res; if (node.op === '!') res = !arg; else if (node.op === '-') res = -arg; else if (node.op === '+') res = +arg; await this.ui.animateOperationCollapse(node.domIds, res); await this.ui.wait(800); return res; }
         if (node instanceof FunctionExpression) { return { type: 'function_expr', name: node.name || 'anonymous', params: node.params.map(p => p.name), paramIds: node.params.map(p => p.id), body: node.body, scope: this.currentScope }; }
+        if (node instanceof ArrowFunctionExpr) { return { type: 'arrow_func', params: node.params.map(p => p.name), paramIds: node.params.map(p => p.id), body: node.body, scope: this.currentScope }; }
         if (node instanceof ArrayLiteral) { const elements = []; for (const el of node.elements) { elements.push(await this.evaluate(el)); } return elements; }
         if (node instanceof NewExpr) { if (node.callee instanceof Identifier && node.callee.name === 'Array') { const args = []; for(const arg of node.args) args.push(await this.evaluate(arg)); if(args.length === 1 && typeof args[0] === 'number') { return new Array(args[0]).fill(undefined); } return new Array(...args); } }
         if (node instanceof ArgumentsNode) { let result; for(const arg of node.args) { result = await this.evaluate(arg); } return result; }
@@ -1117,6 +1311,34 @@ export class Interpreter {
                         }
                         if (isVirtualDomValue(obj)) {
                             let result;
+                            if (method === 'addEventListener' || method === 'removeEventListener') {
+                                result = obj[method](...argValues);
+                                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                node.resultTokenId = callTargetTokenId;
+                                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                await this.ui.wait(500);
+                                return result;
+                            }
+                            if (method === 'click') {
+                                const targetRef = (typeof obj.__domType === 'string') ? obj : null;
+                                if (targetRef) {
+                                    const root = this.domDocument && this.domDocument.body ? this.domDocument.body : null;
+                                    const findPath = (node, target, currentPath = '0') => {
+                                        if (node === target) return currentPath;
+                                        if (!node || !Array.isArray(node.children)) return null;
+                                        for (let idx = 0; idx < node.children.length; idx++) {
+                                            const child = node.children[idx];
+                                            const nested = findPath(child, target, `${currentPath}.${idx}`);
+                                            if (nested) return nested;
+                                        }
+                                        return null;
+                                    };
+                                    const path = root ? findPath(root, targetRef, '0') : '0';
+                                    await this.invokeDomClick(path || '0');
+                                }
+                                return undefined;
+                            }
                             if (method === 'appendChild') {
                                 const sourceTokenId = node.args.length > 0 && node.args[0].domIds ? this.getExpressionDisplayTokenId(node.args[0]) : null;
                                 const domNodeVisible = this.isDomNodeVisible(obj);

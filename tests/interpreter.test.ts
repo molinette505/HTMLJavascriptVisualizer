@@ -146,8 +146,12 @@ describe('lexer/parser - coverage des noeuds', () => {
 
 describe('interpreter - coverage des noeuds', () => {
   beforeEach(() => {
+    const domButtons: Record<string, { disabled: boolean }> = {
+      'btn-trigger': { disabled: false },
+      'btn-set-event': { disabled: false },
+    };
     (globalThis as any).document = {
-      getElementById: () => null,
+      getElementById: (id: string) => (Object.prototype.hasOwnProperty.call(domButtons, id) ? domButtons[id] : null),
       querySelectorAll: () => [],
       createElement: () => ({
         classList: { add: () => {}, remove: () => {} },
@@ -322,6 +326,70 @@ describe('interpreter - coverage des noeuds', () => {
     `);
     expect(getGlobalValue(interpreter, 'text')).toBe('CHAIR');
     expect(getGlobalValue(interpreter, 'sameRef')).toBe(true);
+  });
+
+  it('gere addEventListener click avec callback anonyme et event.target', async () => {
+    const interpreter = await runProgram(`
+      let clicked = false;
+      let cible = document.createElement("button");
+      cible.id = "image-personnage";
+      document.appendChild(cible);
+      let elementImagePersonnage = document.getElementById("image-personnage");
+      elementImagePersonnage.addEventListener("click", function(event) {
+        clicked = event.target.id === "image-personnage";
+      });
+    `);
+    await interpreter.invokeDomClick('0.0');
+    expect(getGlobalValue(interpreter, 'clicked')).toBe(true);
+  });
+
+  it('gere addEventListener click avec arrow function', async () => {
+    const interpreter = await runProgram(`
+      let count = 0;
+      let cible = document.createElement("button");
+      cible.id = "btn";
+      document.appendChild(cible);
+      let element = document.getElementById("btn");
+      element.addEventListener("click", (event) => {
+        if (event.target.id === "btn") {
+          count = count + 1;
+        }
+      });
+    `);
+    await interpreter.invokeDomClick('0.0');
+    await interpreter.invokeDomClick('0.0');
+    expect(getGlobalValue(interpreter, 'count')).toBe(2);
+  });
+
+  it('gere addEventListener click avec fonction nommee', async () => {
+    const interpreter = await runProgram(`
+      let result = "";
+      function onNodeClick(event) {
+        result = event.target.id;
+      }
+      let cible = document.createElement("button");
+      cible.id = "named-handler";
+      document.appendChild(cible);
+      let element = document.getElementById("named-handler");
+      element.addEventListener("click", onNodeClick);
+    `);
+    await interpreter.invokeDomClick('0.0');
+    expect(getGlobalValue(interpreter, 'result')).toBe('named-handler');
+  });
+
+  it('accepte la variante addEventlistener en cours', async () => {
+    const interpreter = await runProgram(`
+      let clicked = false;
+      let cible = document.createElement("button");
+      cible.id = "alias";
+      document.appendChild(cible);
+      let element = document.getElementById("alias");
+      element.addEventlistener("click", function(event) {
+        clicked = event.target.id === "alias";
+      });
+    `);
+    await interpreter.invokeDomClick('0.0');
+    expect(getGlobalValue(interpreter, 'clicked')).toBe(true);
   });
 
   it('supporte les selecteurs CSS complexes (combinators + pseudo-selecteurs)', async () => {

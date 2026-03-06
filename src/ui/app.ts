@@ -7,6 +7,14 @@ import { editor } from './editor';
 
 const EDITOR_MODES = ['html', 'css', 'js'];
 const isEditorMode = (mode) => EDITOR_MODES.includes(mode);
+const DRAWER_TABS = ['memory', 'console', 'dom'];
+const normalizeDrawerTab = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'output') return 'console';
+    if (normalized === 'render') return 'dom';
+    return DRAWER_TABS.includes(normalized) ? normalized : null;
+};
 
 const normalizeLineBreaks = (text) => String(text || '').replace(/\r\n?/g, '\n');
 const stripEdgeBlankLines = (text) => String(text || '').replace(/^\s*\n+/, '').replace(/\n+\s*$/, '');
@@ -72,6 +80,8 @@ const normalizeExternalContent = (payload) => {
     let clearConsole = true;
     let run = false;
     let uiOptions = null;
+    let initialEditorMode = null;
+    let initialDrawerTab = null;
 
     if (typeof payload === 'string') {
         code = formatLoadedText(payload, 'js');
@@ -97,6 +107,49 @@ const normalizeExternalContent = (payload) => {
         if (typeof payload.clearConsole === 'boolean') clearConsole = payload.clearConsole;
         if (typeof payload.run === 'boolean') run = payload.run;
         if (payload.ui && typeof payload.ui === 'object') uiOptions = payload.ui;
+
+        const editorCandidate = (typeof payload.editor === 'string')
+            ? payload.editor
+            : ((typeof payload.editorMode === 'string') ? payload.editorMode : ((typeof payload.startEditor === 'string') ? payload.startEditor : null));
+        if (editorCandidate) {
+            const normalizedEditor = String(editorCandidate).trim().toLowerCase();
+            if (isEditorMode(normalizedEditor)) initialEditorMode = normalizedEditor;
+        }
+
+        const tabCandidate = (typeof payload.tab === 'string')
+            ? payload.tab
+            : ((typeof payload.drawerTab === 'string')
+                ? payload.drawerTab
+                : ((typeof payload.startTab === 'string')
+                    ? payload.startTab
+                    : ((typeof payload.panel === 'string')
+                        ? payload.panel
+                        : ((typeof payload.view === 'string') ? payload.view : null))));
+        if (tabCandidate) initialDrawerTab = normalizeDrawerTab(tabCandidate);
+
+        if (uiOptions && typeof uiOptions === 'object') {
+            if (!initialEditorMode) {
+                const uiEditorCandidate = (typeof uiOptions.editor === 'string')
+                    ? uiOptions.editor
+                    : ((typeof uiOptions.editorMode === 'string')
+                        ? uiOptions.editorMode
+                        : ((typeof uiOptions.startEditor === 'string') ? uiOptions.startEditor : null));
+                if (uiEditorCandidate) {
+                    const normalizedEditor = String(uiEditorCandidate).trim().toLowerCase();
+                    if (isEditorMode(normalizedEditor)) initialEditorMode = normalizedEditor;
+                }
+            }
+            if (!initialDrawerTab) {
+                const uiTabCandidate = (typeof uiOptions.tab === 'string')
+                    ? uiOptions.tab
+                    : ((typeof uiOptions.drawerTab === 'string')
+                        ? uiOptions.drawerTab
+                        : ((typeof uiOptions.startTab === 'string')
+                            ? uiOptions.startTab
+                            : ((typeof uiOptions.view === 'string') ? uiOptions.view : null)));
+                if (uiTabCandidate) initialDrawerTab = normalizeDrawerTab(uiTabCandidate);
+            }
+        }
     }
 
     const finalCss = cssChunks.length > 0 ? formatLoadedText(cssChunks.join('\n\n'), 'css') : css;
@@ -107,6 +160,8 @@ const normalizeExternalContent = (payload) => {
         label,
         clearConsole,
         run,
+        initialEditorMode,
+        initialDrawerTab,
         uiOptions,
         hasContent: code !== null || domHtml !== null || finalCss !== null
     };
@@ -231,19 +286,23 @@ export const app = {
         if (loadPopup) loadPopup.classList.remove('visible');
         ui.hideOptionsPopup();
         const popup = document.getElementById('event-popup');
+        if (!popup) return;
         popup.classList.toggle('visible');
         if (popup.classList.contains('visible')) {
             const input = document.getElementById('event-name-input');
-            input.focus();
-            input.select();
+            if (input) {
+                input.focus();
+                input.select();
+            }
         }
     },
     
     saveEventName: () => {
         const input = document.getElementById('event-name-input');
-        if (input.value.trim()) {
+        if (input && input.value.trim()) {
             app.eventFunctionName = input.value.trim();
-            document.getElementById('event-popup').classList.remove('visible');
+            const popup = document.getElementById('event-popup');
+            if (popup) popup.classList.remove('visible');
         }
     },
 
@@ -277,8 +336,6 @@ export const app = {
     },
 
     toggleLoadPopup: () => {
-        const eventPopup = document.getElementById('event-popup');
-        if (eventPopup) eventPopup.classList.remove('visible');
         ui.hideOptionsPopup();
         const popup = document.getElementById('load-popup');
         if (!popup) return;
@@ -395,10 +452,15 @@ export const app = {
             if (normalized.domHtml !== null) app.editorBuffers.html = formatLoadedText(normalized.domHtml || '<body></body>', 'html');
             if (normalized.css !== null) app.editorBuffers.css = formatLoadedText(String(normalized.css || ''), 'css');
             if (normalized.code !== null) app.editorBuffers.js = formatLoadedText(String(normalized.code), 'js');
-            if (normalized.code !== null) app.currentEditorMode = 'js';
+            if (normalized.initialEditorMode && isEditorMode(normalized.initialEditorMode)) {
+                app.currentEditorMode = normalized.initialEditorMode;
+            } else if (normalized.code !== null) {
+                app.currentEditorMode = 'js';
+            }
             app.hydrateDomStateFromBuffers();
             ui.updateDom(createVirtualDocument(app.currentDomHtml), app.currentDomCss);
             app.applyEditorModeToInput();
+            if (normalized.initialDrawerTab) ui.switchTab(normalized.initialDrawerTab);
             if (normalized.clearConsole) consoleUI.clear();
             ui.log(`Contenu charge (${normalized.label}).`, 'info');
             if (normalized.run) app.start();
@@ -453,5 +515,9 @@ export const app = {
     
     triggerEvent: () => {
         if (app.interpreter) app.interpreter.invokeEvent(app.eventFunctionName);
+    },
+    dispatchDomClick: async (domPath = '') => {
+        if (!app.interpreter || typeof app.interpreter.invokeDomClick !== 'function') return;
+        await app.interpreter.invokeDomClick(domPath);
     }
 };

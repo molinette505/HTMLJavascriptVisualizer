@@ -685,6 +685,8 @@ export class VirtualElementNode {
         this.tagName = normalizeTagName(tagName);
         this.attributes = {};
         this._styleMap = {};
+        this._listeners = {};
+        this._onclickHandler = null;
         this.children = [];
         Object.keys(attributes || {}).forEach((name) => {
             this.setAttribute(name, attributes[name]);
@@ -804,6 +806,67 @@ export class VirtualElementNode {
                 return owner._styleMap[normalizedName] || '';
             }
         };
+    }
+
+    addEventListener(type, handler) {
+        const eventType = String(type || '').trim().toLowerCase();
+        if (!eventType || !handler) return;
+        if (!Array.isArray(this._listeners[eventType])) this._listeners[eventType] = [];
+        this._listeners[eventType].push(handler);
+    }
+
+    addEventlistener(type, handler) {
+        this.addEventListener(type, handler);
+    }
+
+    addEventListent(type, handler) {
+        this.addEventListener(type, handler);
+    }
+
+    removeEventListener(type, handler) {
+        const eventType = String(type || '').trim().toLowerCase();
+        if (!eventType || !Array.isArray(this._listeners[eventType])) return;
+        if (!handler) {
+            this._listeners[eventType] = [];
+            return;
+        }
+        this._listeners[eventType] = this._listeners[eventType].filter((entry) => entry !== handler);
+    }
+
+    removeEventlistener(type, handler) {
+        this.removeEventListener(type, handler);
+    }
+
+    removeEventListent(type, handler) {
+        this.removeEventListener(type, handler);
+    }
+
+    getEventHandlers(type) {
+        const eventType = String(type || '').trim().toLowerCase();
+        if (!eventType) return [];
+        const handlers = [];
+        if (eventType === 'click') {
+            const inline = this.getAttribute('onclick');
+            if (inline !== undefined && inline !== null && String(inline).trim() !== '') {
+                handlers.push({ kind: 'inline-attr', handler: String(inline) });
+            }
+            if (this._onclickHandler) handlers.push({ kind: 'onclick-prop', handler: this._onclickHandler });
+        }
+        const listeners = Array.isArray(this._listeners[eventType]) ? this._listeners[eventType] : [];
+        listeners.forEach((listener) => handlers.push({ kind: 'listener', handler: listener }));
+        return handlers;
+    }
+
+    get onclick() {
+        return this._onclickHandler;
+    }
+
+    set onclick(handler) {
+        if (handler === undefined || handler === null) {
+            this._onclickHandler = null;
+            return;
+        }
+        this._onclickHandler = handler;
     }
 
     get value() {

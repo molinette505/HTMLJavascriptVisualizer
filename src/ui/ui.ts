@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { TokenType, Lexer } from '../core/language';
 import { formatValue } from '../core/config';
-import { isVirtualDomValue, serializeVirtualDocument } from '../core/virtualDom';
+import { isVirtualDomValue } from '../core/virtualDom';
 import { refreshIcons } from './icons';
 
 const escapeHtml = (value) => String(value)
@@ -308,6 +308,7 @@ const valueToCodePreviewText = (value, initialized = true, functionAlias = null)
 
 const getCodePreviewTypeLabel = (snapshot) => {
     if (!snapshot || snapshot.initialized === false) return 'undefined';
+    if (snapshot.arrayOwner && Array.isArray(snapshot.value)) return 'ref array';
     return getMemoryTypeLabel(snapshot.value, true);
 };
 
@@ -335,8 +336,32 @@ const applyToggleButtonState = (button, isOn) => {
     button.setAttribute('data-state', isOn ? 'on' : 'off');
 };
 
+const PREVIEW_VOID_TAGS = new Set([
+    'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+    'link', 'meta', 'param', 'source', 'track', 'wbr'
+]);
+
+const serializePreviewNode = (node, path = '0') => {
+    if (!node) return '';
+    if (node.__domType === 'text') return escapeHtml(String(node.textContent || ''));
+    if (node.__domType !== 'element') return '';
+    const tag = String(node.tagName || 'div').toLowerCase();
+    const attrs = Object.keys(node.attributes || {})
+        .map((name) => `${name}="${escapeHtml(String(node.attributes[name] || ''))}"`)
+        .join(' ');
+    const pathAttr = `data-vdom-path="${escapeHtml(path)}"`;
+    const joinedAttrs = [attrs, pathAttr].filter(Boolean).join(' ').trim();
+    const openTag = joinedAttrs ? `<${tag} ${joinedAttrs}>` : `<${tag}>`;
+    if (PREVIEW_VOID_TAGS.has(tag)) return openTag;
+    const children = (node.children || [])
+        .map((child, index) => serializePreviewNode(child, `${path}.${index}`))
+        .join('');
+    return `${openTag}${children}</${tag}>`;
+};
+
 const buildDomPreviewDocument = (domDocument, cssText = '') => {
-    const bodyMarkup = domDocument ? serializeVirtualDocument(domDocument, false) : '<body></body>';
+    const bodyNode = (domDocument && domDocument.body) ? domDocument.body : null;
+    const bodyMarkup = bodyNode ? serializePreviewNode(bodyNode, '0') : '<body data-vdom-path="0"></body>';
     const safeCss = String(cssText || '').replace(/<\/style/gi, '<\\/style');
     const styleBlock = safeCss.trim() ? `<style>${safeCss}</style>` : '';
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">${styleBlock}</head>${bodyMarkup}</html>`;
@@ -553,7 +578,7 @@ const buildDomTreeMarkup = (node, depth = 0, includeIds = true, idPrefix = 'dom-
     if (node.__domType === 'text') {
         const trimmed = String(node.textContent || '').trim();
         if (!trimmed) return '';
-        const text = escapeHtml(trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed);
+        const text = escapeHtml(trimmed);
         const idAttr = includeIds ? ` id="${idPrefix}${treeRef}"` : '';
         return `<div${idAttr} data-dom-tree-ref="${treeRef}" class="dom-tree-node dom-tree-text" style="margin-left:${depth * 18}px"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr" data-dom-attr="text">"${text}"</span></div>`;
     }
@@ -582,7 +607,7 @@ const buildDomInlineValueMarkup = (node) => {
     if (!node) return '<span class="mem-dom-inline-empty">dom-node</span>';
     if (node.__domType === 'text') {
         const trimmed = String(node.textContent || '').trim();
-        const text = escapeHtml(trimmed.length > 28 ? `${trimmed.slice(0, 28)}...` : trimmed || '(vide)');
+        const text = escapeHtml(trimmed || '(vide)');
         return `<span class="mem-dom-inline mem-dom-inline-text"><span class="dom-tree-text-label">TEXTE</span><span class="dom-tree-attr">"${text}"</span></span>`;
     }
     if (node.__domType !== 'element') return `<span class="mem-dom-inline">${escapeHtml(String(formatValue(node)))}</span>`;
@@ -600,20 +625,11 @@ const buildDomInlineValueMarkup = (node) => {
         .filter((name) => name !== 'id' && name !== 'class')
         .map((name) => {
             const raw = String(node.attributes[name] || '');
-            const compact = raw.length > 32 ? `${raw.slice(0, 32)}...` : raw;
-            return `<span class="dom-tree-attr">[${escapeHtml(name)}="${escapeHtml(compact)}"]</span>`;
+            return `<span class="dom-tree-attr">[${escapeHtml(name)}="${escapeHtml(raw)}"]</span>`;
         })
         .join('');
     const attrsPart = attrs ? `<span class="dom-tree-attrs">${attrs}</span>` : '';
-    const hasChildren = Array.isArray(node.children)
-        && node.children.some((child) => {
-            if (!child) return false;
-            if (child.__domType === 'element') return true;
-            if (child.__domType === 'text') return String(child.textContent || '').trim().length > 0;
-            return false;
-        });
-    const childrenHint = hasChildren ? '<span class="mem-dom-inline-children">...</span>' : '';
-    return `<span class="mem-dom-inline"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}${childrenHint}</span>`;
+    return `<span class="mem-dom-inline"><span class="dom-tree-tag">${tag}</span>${idPart}${classPart}${attrsPart}</span>`;
 };
 
 const mapDomPropertyToAttr = (property) => {
@@ -1123,7 +1139,7 @@ export const ui = {
         panel.className = 'memory-array-portal-panel';
         const title = document.createElement('div');
         title.className = 'memory-array-portal-title';
-        title.innerText = `ref array ${ownerVarName} length=${ownerArray.length}`;
+        title.innerHTML = `<span class="mem-type">ref array</span><span class="memory-array-portal-title-text">${escapeHtml(ownerVarName)} length=${ownerArray.length}</span>`;
         panel.appendChild(title);
         const list = document.createElement('div');
         list.className = 'memory-array-portal-list';
@@ -1166,6 +1182,12 @@ export const ui = {
             }
             const clampedTop = Math.max(visibleTop, Math.min(visibleBottom, top));
             panel.style.top = `${clampedTop}px`;
+            if (anchorRect && panelRect.height > 0) {
+                const anchorCenter = (anchorRect.top - containerRect.top) + container.scrollTop + (anchorRect.height / 2);
+                const anchorYPercent = ((anchorCenter - clampedTop) / panelRect.height) * 100;
+                const bounded = Math.max(6, Math.min(94, anchorYPercent));
+                panel.style.setProperty('--memory-portal-anchor-y', `${bounded}%`);
+            }
         };
         const onContainerScroll = () => positionPanel();
         container.addEventListener('scroll', onContainerScroll, { passive: true });
@@ -1531,10 +1553,12 @@ export const ui = {
         document.getElementById('btn-skip').disabled = !ui.isStopping && !enabled && false; 
     },
     setEventMode: (enabled) => {
-        document.getElementById('btn-trigger').disabled = !enabled;
-        // document.getElementById('btn-set-event').disabled = !enabled; // Now always enabled
-        document.getElementById('btn-next').disabled = true; 
-        document.getElementById('btn-skip').disabled = true;
+        const triggerBtn = document.getElementById('btn-trigger');
+        if (triggerBtn) triggerBtn.disabled = !enabled;
+        const nextBtn = document.getElementById('btn-next');
+        const skipBtn = document.getElementById('btn-skip');
+        if (nextBtn) nextBtn.disabled = true;
+        if (skipBtn) skipBtn.disabled = true;
     },
     switchDomView: () => {},
     updateDom: (domDocument, domCss = undefined) => {
@@ -2146,6 +2170,25 @@ export const ui = {
         iframe.className = 'dom-render-frame';
         iframe.setAttribute('title', 'Apercu HTML');
         iframe.setAttribute('sandbox', 'allow-same-origin');
+        iframe.addEventListener('load', () => {
+            try {
+                const frameDoc = iframe.contentDocument;
+                if (!frameDoc) return;
+                frameDoc.addEventListener('click', (event) => {
+                    const rawTarget = event.target;
+                    if (!rawTarget || rawTarget.nodeType !== 1) return;
+                    const target = rawTarget.closest('[data-vdom-path]');
+                    if (!target) return;
+                    event.preventDefault();
+                    const path = target.getAttribute('data-vdom-path') || '';
+                    if (window.app && typeof window.app.dispatchDomClick === 'function') {
+                        window.app.dispatchDomClick(path);
+                    }
+                });
+            } catch (error) {
+                // noop
+            }
+        });
         iframe.srcdoc = buildDomPreviewDocument(ui.domDocument, ui.domCss);
         renderView.innerHTML = '';
         renderView.appendChild(iframe);
@@ -2415,6 +2458,7 @@ export const ui = {
                     valStr = valueToVisualText(v.value);
                 }
                 const valueType = getMemoryTypeLabel(v.value, true);
+                const displayType = isArrayRef ? 'ref array' : valueType;
                 const rowId = `mem-row-${scope.id}-${name}-main`; let row = document.getElementById(rowId);
                 if (!row) { row = document.createElement('div'); row.id = rowId; groupDiv.insertBefore(row, groupDiv.firstChild); }
                 const topValueId = Array.isArray(v.value) ? `mem-header-${name}` : `mem-val-${name}`;
@@ -2422,7 +2466,7 @@ export const ui = {
                 const topPreviewAttrs = topHasDomPreview ? ` data-dom-preview="true" data-dom-preview-id="${topValueId}"` : '';
                 const topValueMarkup = topHasDomPreview ? buildDomInlineValueMarkup(v.value) : escapeHtml(valStr);
                 const metaHtml = buildMemoryMetaHtml({
-                    typeLabel: valueType,
+                    typeLabel: displayType,
                     address: v.addr || '',
                     showType: ui.showMemoryTypes,
                     showAddress: ui.showMemoryAddresses
