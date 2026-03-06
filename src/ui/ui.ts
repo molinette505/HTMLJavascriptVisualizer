@@ -328,6 +328,17 @@ const buildMemoryMetaHtml = ({ typeLabel = '', address = '', showType = false, s
     return parts.length > 0 ? `<span class="mem-meta">${parts.join('')}</span>` : '';
 };
 
+const wrapMemoryValueMarkup = (markup) => `<span class="mem-val-content">${markup}</span>`;
+
+const getFlowVisualElement = (element) => {
+    if (!element || !element.classList) return element;
+    if (element.classList.contains('mem-val')) {
+        const valueContent = element.querySelector('.mem-val-content');
+        if (valueContent) return valueContent;
+    }
+    return element;
+};
+
 const applyToggleButtonState = (button, isOn) => {
     if (!button) return;
     button.innerText = isOn ? 'ON' : 'OFF';
@@ -699,6 +710,9 @@ let flowGuideCounter = 1;
 const createFlowGuideLine = (sourceEl, destinationEl) => {
     if (!sourceEl || !destinationEl || typeof document === 'undefined') return { stop: () => {} };
     if (ui && ui.showFlowLine === false) return { stop: () => {} };
+    const sourceTarget = getFlowVisualElement(sourceEl);
+    const destinationTarget = getFlowVisualElement(destinationEl);
+    if (!sourceTarget || !destinationTarget) return { stop: () => {} };
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.classList.add('flow-link-line');
@@ -762,8 +776,8 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
         const overlayRect = svg.getBoundingClientRect();
         const overlayWidth = Math.max(1, overlayRect.width);
         const overlayHeight = Math.max(1, overlayRect.height);
-        const sourceRect = sourceEl.getBoundingClientRect();
-        const destinationRect = destinationEl.getBoundingClientRect();
+        const sourceRect = sourceTarget.getBoundingClientRect();
+        const destinationRect = destinationTarget.getBoundingClientRect();
         const startX = sourceRect.left + sourceRect.width / 2 - overlayRect.left;
         const startY = sourceRect.top + sourceRect.height / 2 - overlayRect.top;
         const endX = destinationRect.left + destinationRect.width / 2 - overlayRect.left;
@@ -1158,7 +1172,7 @@ export const ui = {
                 showAddress: false
             });
             row.className = `memory-cell array-element memory-array-portal-row ${metaHtml ? 'has-meta' : 'no-meta'}`;
-            row.innerHTML = `${metaHtml}<span class="mem-name">[${index}]</span><span class="mem-val" data-portal-index="${index}">${escapeHtml(itemValue)}</span>`;
+            row.innerHTML = `${metaHtml}<span class="mem-name">[${index}]</span><span class="mem-val" data-portal-index="${index}">${wrapMemoryValueMarkup(escapeHtml(itemValue))}</span>`;
             if (targetIdx !== null && index === targetIdx) row.classList.add('portal-target');
             list.appendChild(row);
         }
@@ -1670,9 +1684,10 @@ export const ui = {
     },
     setFlowHighlight: (elements, enabled) => {
         (elements || []).forEach((element) => {
-            if (!element) return;
-            if (enabled) element.classList.add('flow-link-highlight');
-            else element.classList.remove('flow-link-highlight');
+            const flowElement = getFlowVisualElement(element);
+            if (!flowElement) return;
+            if (enabled) flowElement.classList.add('flow-link-highlight');
+            else flowElement.classList.remove('flow-link-highlight');
         });
     },
     animateWithFlowHighlight: async (sourceEl, destinationEl, flyCallback) => {
@@ -2408,7 +2423,7 @@ export const ui = {
                     showAddress: false
                 });
                 row.className = `memory-cell array-element ${metaHtml ? 'has-meta' : 'no-meta'}`;
-                row.innerHTML = `${metaHtml}<span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${valueMarkup}</span>`;
+                row.innerHTML = `${metaHtml}<span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${wrapMemoryValueMarkup(valueMarkup)}</span>`;
                 if (hasDomPreview) ui.memoryDomPreviewRefs.set(valueId, item);
                 if (variableName === flashVarName && isTopLevel && flashIndex === idx) {
                     if (flashType === 'insert' || flashType === 'delete') row.classList.add(`flash-${flashType}`);
@@ -2471,7 +2486,7 @@ export const ui = {
                     showType: ui.showMemoryTypes,
                     showAddress: ui.showMemoryAddresses
                 });
-                row.innerHTML = `${metaHtml}<span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${topValueMarkup}</span>`;
+                row.innerHTML = `${metaHtml}<span class="mem-name">${name}</span><span class="mem-val" id="${topValueId}"${topPreviewAttrs}>${wrapMemoryValueMarkup(topValueMarkup)}</span>`;
                 if (topHasDomPreview) ui.memoryDomPreviewRefs.set(topValueId, v.value);
                 row.className = `memory-cell ${metaHtml ? 'has-meta' : 'no-meta'}`;
                 if(Array.isArray(v.value)) row.classList.add('sticky-var');
@@ -2549,10 +2564,13 @@ export const ui = {
 
     flyHelper: async (value, startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;
-        const guide = createFlowGuideLine(startEl, endEl);
+        const startTarget = getFlowVisualElement(startEl);
+        const endTarget = getFlowVisualElement(endEl);
+        if (!startTarget || !endTarget) return;
+        const guide = createFlowGuideLine(startTarget, endTarget);
         try {
             // Scroll destination into view first
-            endEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+            endTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
             
             // Wait for scroll to reliably finish (fixed timing issue)
             await ui.wait(600); 
@@ -2562,8 +2580,8 @@ export const ui = {
             const zIndex = 12000;
 
             // Re-calculate positions AFTER scroll is complete
-            const start = startEl.getBoundingClientRect(); 
-            const end = endEl.getBoundingClientRect();
+            const start = startTarget.getBoundingClientRect(); 
+            const end = endTarget.getBoundingClientRect();
             
             if (start.top < 0 || end.top < 0) return;
             if (start.width < 2 || start.height < 2 || end.width < 2 || end.height < 2) return;
@@ -2590,14 +2608,17 @@ export const ui = {
     },
     flyDomNodeHelper: async (startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;
-        const guide = createFlowGuideLine(startEl, endEl);
+        const startTarget = getFlowVisualElement(startEl);
+        const endTarget = getFlowVisualElement(endEl);
+        if (!startTarget || !endTarget) return;
+        const guide = createFlowGuideLine(startTarget, endTarget);
         try {
-            endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            endTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
             await ui.wait(600);
             if (ui.isStopping) return;
 
-            const start = startEl.getBoundingClientRect();
-            const end = endEl.getBoundingClientRect();
+            const start = startTarget.getBoundingClientRect();
+            const end = endTarget.getBoundingClientRect();
             if (start.top < 0 || end.top < 0) return;
 
             const flyer = startEl.cloneNode(true);

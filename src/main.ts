@@ -72,9 +72,46 @@ document.getElementById('code-input').addEventListener('focus', closeDrawerForEd
 // Drawer Drag Logic
 const handle = document.getElementById('drawer-handle');
 const panel = document.getElementById('right-panel');
+const desktopSplitter = document.getElementById('desktop-splitter');
+const mainContainer = document.getElementById('main-container');
 let startY = 0;
 let startHeight = 0;
 let isDragging = false;
+let isDesktopDragging = false;
+const MIN_RIGHT_PANEL_WIDTH = 300;
+const MIN_EDITOR_WIDTH = 320;
+
+const clampDesktopPanelWidth = () => {
+    if (!panel || !mainContainer || !desktopSplitter) return;
+    if (window.innerWidth < 800) {
+        panel.style.width = '';
+        return;
+    }
+    const containerRect = mainContainer.getBoundingClientRect();
+    const splitterRect = desktopSplitter.getBoundingClientRect();
+    const splitterWidth = Math.max(0, splitterRect.width || 0);
+    const maxPanelWidth = Math.max(
+        MIN_RIGHT_PANEL_WIDTH,
+        containerRect.width - MIN_EDITOR_WIDTH - splitterWidth
+    );
+    const currentPanelWidth = panel.getBoundingClientRect().width;
+    const clampedWidth = Math.min(maxPanelWidth, Math.max(MIN_RIGHT_PANEL_WIDTH, currentPanelWidth));
+    panel.style.width = `${Math.round(clampedWidth)}px`;
+};
+
+const setDesktopPanelWidthFromPointer = (clientX: number) => {
+    if (!panel || !mainContainer || !desktopSplitter || window.innerWidth < 800) return;
+    const containerRect = mainContainer.getBoundingClientRect();
+    const splitterRect = desktopSplitter.getBoundingClientRect();
+    const splitterWidth = Math.max(0, splitterRect.width || 0);
+    const maxPanelWidth = Math.max(
+        MIN_RIGHT_PANEL_WIDTH,
+        containerRect.width - MIN_EDITOR_WIDTH - splitterWidth
+    );
+    const rawWidth = containerRect.right - clientX;
+    const clampedWidth = Math.min(maxPanelWidth, Math.max(MIN_RIGHT_PANEL_WIDTH, rawWidth));
+    panel.style.width = `${Math.round(clampedWidth)}px`;
+};
 
 handle.addEventListener('touchstart', (e) => {
     if (window.innerWidth >= 800) return;
@@ -119,13 +156,52 @@ handle.addEventListener('click', () => {
     panel.style.height = '';
 });
 
+desktopSplitter?.addEventListener('pointerdown', (event) => {
+    if (window.innerWidth < 800) return;
+    isDesktopDragging = true;
+    desktopSplitter.classList.add('is-dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    if (desktopSplitter.setPointerCapture) desktopSplitter.setPointerCapture(event.pointerId);
+    setDesktopPanelWidthFromPointer(event.clientX);
+});
+
+document.addEventListener('pointermove', (event) => {
+    if (!isDesktopDragging) return;
+    setDesktopPanelWidthFromPointer(event.clientX);
+    ui.positionOptionsPopup();
+});
+
+const stopDesktopDrag = (event?: PointerEvent) => {
+    if (!isDesktopDragging) return;
+    isDesktopDragging = false;
+    if (desktopSplitter) desktopSplitter.classList.remove('is-dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    if (desktopSplitter && event && desktopSplitter.releasePointerCapture && desktopSplitter.hasPointerCapture?.(event.pointerId)) {
+        desktopSplitter.releasePointerCapture(event.pointerId);
+    }
+    clampDesktopPanelWidth();
+    ui.positionOptionsPopup();
+};
+
+document.addEventListener('pointerup', (event) => stopDesktopDrag(event));
+document.addEventListener('pointercancel', (event) => stopDesktopDrag(event));
+
 window.addEventListener('resize', () => {
     if (window.innerWidth >= 800) {
         document.getElementById('right-panel').classList.remove('open');
+        clampDesktopPanelWidth();
     } else {
         const hasActive = document.querySelector('.drawer-tab.active');
         if (!hasActive) ui.switchTab('memory');
+        panel.style.width = '';
     }
+    ui.positionOptionsPopup();
+});
+
+window.requestAnimationFrame(() => {
+    clampDesktopPanelWidth();
     ui.positionOptionsPopup();
 });
 
