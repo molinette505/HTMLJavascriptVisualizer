@@ -153,6 +153,13 @@ export class Interpreter {
         return cursor || root;
     }
 
+    updateDomInputValue(path = '', nextValue = '') {
+        const targetNode = this.resolveDomNodeByPath(path);
+        if (!targetNode || targetNode.__domType !== 'element') return false;
+        targetNode.value = String(nextValue ?? '');
+        return true;
+    }
+
     buildDomEventPayload(targetNode, currentTargetNode, eventType = 'click') {
         return {
             type: String(eventType || 'click'),
@@ -768,8 +775,12 @@ export class Interpreter {
                 if (node.init) {
                     if (node.init instanceof VarDecl || node.init instanceof BlockStmt || node.init instanceof MultiVarDecl) await this.execute(node.init);
                     else {
-                        await this.pause(node.init.line);
-                        await this.evaluate(node.init);
+                        if (node.init instanceof Assignment || node.init instanceof UpdateExpr || node.init instanceof CallExpr) {
+                            await this.execute(node.init);
+                        } else {
+                            await this.pause(node.init.line);
+                            await this.evaluate(node.init);
+                        }
                     }
                 }
                 while (true) {
@@ -808,8 +819,12 @@ export class Interpreter {
                     }
 
                     if (node.update) {
-                        await this.pause(node.line);
-                        await this.evaluate(node.update);
+                        if (node.update instanceof Assignment || node.update instanceof UpdateExpr || node.update instanceof CallExpr) {
+                            await this.execute(node.update);
+                        } else {
+                            await this.pause(node.line);
+                            await this.evaluate(node.update);
+                        }
                     }
                     if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
                 }

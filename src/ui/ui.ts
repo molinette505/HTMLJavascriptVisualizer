@@ -283,6 +283,15 @@ const valueToVisualText = (value) => {
     return JSON.stringify(formatValue(value));
 };
 
+const valueToCodeVisualText = (value) => {
+    if (isVirtualDomValue(value)) {
+        if (value.__domType === 'element') return String(value.tagName || 'node').toLowerCase();
+        if (value.__domType === 'text') return 'text';
+        if (value.__domType === 'document') return 'document';
+    }
+    return valueToVisualText(value);
+};
+
 const valueToCodePreviewText = (value, initialized = true, functionAlias = null) => {
     if (!initialized) return 'uninitialized';
     if (value && typeof value === 'object') {
@@ -337,6 +346,28 @@ const getFlowVisualElement = (element) => {
         if (valueContent) return valueContent;
     }
     return element;
+};
+
+const resolveVirtualDomNodeByPath = (domDocument, path = '') => {
+    const root = domDocument && domDocument.body ? domDocument.body : null;
+    if (!root) return null;
+    const normalized = String(path || '').trim();
+    if (!normalized || normalized === '0') return root;
+    const parts = normalized
+        .split('.')
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isFinite(entry));
+    if (parts.length === 0) return root;
+    let cursor = root;
+    const startIndex = parts[0] === 0 ? 1 : 0;
+    for (let index = startIndex; index < parts.length; index++) {
+        const childIndex = parts[index];
+        if (!cursor || !Array.isArray(cursor.children) || childIndex < 0 || childIndex >= cursor.children.length) {
+            return cursor;
+        }
+        cursor = cursor.children[childIndex];
+    }
+    return cursor || root;
 };
 
 const applyToggleButtonState = (button, isOn) => {
@@ -1555,7 +1586,6 @@ export const ui = {
         
         document.getElementById('btn-next').disabled = !running; 
         document.getElementById('btn-skip').disabled = !running; 
-        document.querySelectorAll('.mode-btn').forEach((button) => { button.disabled = running; });
         document.getElementById('code-input').readOnly = running; 
         document.getElementById('code-input').style.pointerEvents = running ? 'none' : 'auto';
         document.getElementById('code-display').style.pointerEvents = running ? 'auto' : 'none';
@@ -1579,6 +1609,13 @@ export const ui = {
         ui.domDocument = domDocument || null;
         if (domCss !== undefined) ui.domCss = String(domCss || '');
         ui.renderDomPanel();
+    },
+    updateDomInputValue: (domPath = '', nextValue = '') => {
+        if (!ui.domDocument) return false;
+        const targetNode = resolveVirtualDomNodeByPath(ui.domDocument, domPath);
+        if (!targetNode || targetNode.__domType !== 'element') return false;
+        targetNode.value = String(nextValue ?? '');
+        return true;
     },
     getDomTreeNodeElement: (node, root = document) => {
         if (!node) return null;
@@ -2194,12 +2231,34 @@ export const ui = {
                     if (!rawTarget || rawTarget.nodeType !== 1) return;
                     const target = rawTarget.closest('[data-vdom-path]');
                     if (!target) return;
-                    event.preventDefault();
+                    const tag = String(target.tagName || '').toLowerCase();
+                    if (!['input', 'textarea', 'select', 'option'].includes(tag)) {
+                        event.preventDefault();
+                    }
                     const path = target.getAttribute('data-vdom-path') || '';
                     if (window.app && typeof window.app.dispatchDomClick === 'function') {
                         window.app.dispatchDomClick(path);
                     }
                 });
+                const syncInputValue = (event) => {
+                    const rawTarget = event.target;
+                    if (!rawTarget || rawTarget.nodeType !== 1) return;
+                    const target = rawTarget.closest('[data-vdom-path]');
+                    if (!target) return;
+                    const tag = String(target.tagName || '').toLowerCase();
+                    if (!['input', 'textarea', 'select'].includes(tag)) return;
+                    const path = target.getAttribute('data-vdom-path') || '';
+                    const nextValue = ('value' in target)
+                        ? String(target.value ?? '')
+                        : '';
+                    if (window.app && typeof window.app.dispatchDomInput === 'function') {
+                        window.app.dispatchDomInput(path, nextValue);
+                    } else {
+                        ui.updateDomInputValue(path, nextValue);
+                    }
+                };
+                frameDoc.addEventListener('input', syncInputValue, true);
+                frameDoc.addEventListener('change', syncInputValue, true);
             } catch (error) {
                 // noop
             }
@@ -2556,7 +2615,7 @@ export const ui = {
         }
         return best.element;
     },
-    replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = valueToVisualText(newValue); el.classList.add('val-replacement'); } },
+    replaceTokenText: (tokenId, newValue, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = valueToCodeVisualText(newValue); el.classList.add('val-replacement'); } },
     setRawTokenText: (tokenId, text, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerText = text; el.classList.add('val-replacement'); } },
     setTokenMarkup: (tokenId, html, isTransient = true) => { if(ui.isStopping) return; const el = document.getElementById(tokenId); if (el) { ui.rememberTokenOriginal(tokenId, el, isTransient); el.innerHTML = html; el.classList.add('val-replacement'); } },
     resetTokenText: (tokenId) => { const el = document.getElementById(tokenId); if (el && ui.modifiedTokens.has(tokenId)) { const data = ui.modifiedTokens.get(tokenId); if (Object.prototype.hasOwnProperty.call(data, 'originalHtml')) el.innerHTML = data.originalHtml; else el.innerText = data.original; el.classList.remove('val-replacement'); ui.modifiedTokens.delete(tokenId); } },
@@ -2585,7 +2644,7 @@ export const ui = {
             
             if (start.top < 0 || end.top < 0) return;
             if (start.width < 2 || start.height < 2 || end.width < 2 || end.height < 2) return;
-            const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = valueToVisualText(value); document.body.appendChild(flyer);
+            const flyer = document.createElement('div'); flyer.className = 'flying-element'; flyer.innerText = valueToCodeVisualText(value); document.body.appendChild(flyer);
             
             flyer.style.zIndex = zIndex; 
 
@@ -2798,7 +2857,7 @@ export const ui = {
         });
         await ui.wait(ui.baseDelay);
         const target = ui.pickExpressionCollapseTarget(elements) || elements[0];
-        target.innerText = valueToVisualText(result);
+        target.innerText = valueToCodeVisualText(result);
         target.style.opacity = '1';
         target.classList.add('op-result');
         for (let index = 0; index < elements.length; index++) {
@@ -2816,7 +2875,7 @@ export const ui = {
             elements.forEach((element) => {
                 if (!ui.modifiedTokens.has(element.id)) ui.modifiedTokens.set(element.id, { original: element.innerText, transient: true });
             });
-            targetEl.innerText = valueToVisualText(result);
+            targetEl.innerText = valueToCodeVisualText(result);
             targetEl.classList.add('op-result');
             elements.forEach((element) => {
                 if (element !== targetEl) element.style.display = 'none';
@@ -2832,7 +2891,7 @@ export const ui = {
             element.style.opacity = '0.5';
         });
         if (!sourceId) await ui.wait(ui.baseDelay);
-        targetEl.innerText = valueToVisualText(result);
+        targetEl.innerText = valueToCodeVisualText(result);
         targetEl.style.opacity = '1';
         targetEl.classList.add('op-result');
         elements.forEach((element) => {

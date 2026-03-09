@@ -196,6 +196,20 @@ describe('interpreter - coverage des noeuds', () => {
     expect(getGlobalValue(interpreter, 'sum')).toBe(6);
   });
 
+  it('supporte les variantes d update dans for', async () => {
+    const interpreter = await runProgram(`
+      let sumA = 0;
+      for (let i = 0; i < 4; i += 1) { sumA += i; }
+
+      let j = 0;
+      let sumB = 0;
+      for (j = 0; j < 4; j = j + 1) { sumB += j; }
+    `);
+    expect(getGlobalValue(interpreter, 'sumA')).toBe(6);
+    expect(getGlobalValue(interpreter, 'sumB')).toBe(6);
+    expect(getGlobalValue(interpreter, 'j')).toBe(4);
+  });
+
   it('libere le scope de boucle for a chaque iteration', async () => {
     const interpreter = await runProgram(`
       let notes = [14, 11, 17];
@@ -390,6 +404,21 @@ describe('interpreter - coverage des noeuds', () => {
     `);
     await interpreter.invokeDomClick('0.0');
     expect(getGlobalValue(interpreter, 'clicked')).toBe(true);
+  });
+
+  it('lit la valeur input synchronisee dynamiquement depuis le rendu DOM', async () => {
+    const interpreter = await runProgram(`
+      let valeurLue = "";
+      let champ = document.createElement("input");
+      champ.id = "champ";
+      document.appendChild(champ);
+      champ.addEventListener("click", function(event) {
+        valeurLue = document.getElementById("champ").value;
+      });
+    `);
+    interpreter.updateDomInputValue('0.0', 'Bonjour');
+    await interpreter.invokeDomClick('0.0');
+    expect(getGlobalValue(interpreter, 'valeurLue')).toBe('Bonjour');
   });
 
   it('supporte les selecteurs CSS complexes (combinators + pseudo-selecteurs)', async () => {

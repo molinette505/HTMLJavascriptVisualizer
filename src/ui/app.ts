@@ -519,5 +519,13 @@ export const app = {
     dispatchDomClick: async (domPath = '') => {
         if (!app.interpreter || typeof app.interpreter.invokeDomClick !== 'function') return;
         await app.interpreter.invokeDomClick(domPath);
+    },
+    dispatchDomInput: (domPath = '', value = '') => {
+        if (app.interpreter && typeof app.interpreter.updateDomInputValue === 'function') {
+            app.interpreter.updateDomInputValue(domPath, value);
+        }
+        if (ui && typeof ui.updateDomInputValue === 'function') {
+            ui.updateDomInputValue(domPath, value);
+        }
     }
 };
