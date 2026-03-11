@@ -47,13 +47,19 @@
 
         /* --- TOOLBAR --- */
         .toolbar {
-            height: var(--header-height);
+            min-height: var(--header-height);
+            height: auto;
             background: var(--bg-panel);
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            align-content: flex-start;
             padding: 0 10px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            row-gap: 8px;
             gap: 10px;
             z-index: 300;
             flex-shrink: 0; 
@@ -68,6 +74,7 @@
             gap: 8px;
             min-width: 0;
             flex: 1;
+            flex-basis: 360px;
         }
 
         .toolbar-group {
@@ -85,6 +92,7 @@
         }
 
         button.icon-btn {
+            position: relative;
             background: var(--accent);
             color: white;
             border: none;
@@ -98,6 +106,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            overflow: visible;
             transition: transform 0.1s, background-color 0.2s;
             /* FIX 2: Prevent double-tap zoom on buttons but allow scroll/click */
             touch-action: manipulation;
@@ -951,7 +960,9 @@
             .mobile-tools-container { display: none !important; }
         }
         @media (max-width: 1024px) {
+            .toolbar-main { flex-basis: 100%; }
             .editor-mode-group { order: 3; }
+            .settings-group { margin-left: auto; }
         }
 
         /* --- MEMORY & CONSOLE --- */
