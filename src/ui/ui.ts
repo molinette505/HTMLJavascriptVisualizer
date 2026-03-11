@@ -1220,9 +1220,9 @@ export const ui = {
         const partial = !allSelected && ui.hasAnyBreakpoints();
         if (!ui.hasAnyBreakpoints()) ui.breakpointsDefaultAll = false;
         else if (allSelected) ui.breakpointsDefaultAll = true;
-        button.setAttribute('title', allSelected ? 'Tout deselectionner' : 'Tout selectionner');
+        button.setAttribute('data-tooltip', 'toggle break points');
         button.setAttribute('aria-pressed', allSelected ? 'true' : 'false');
-        button.setAttribute('aria-label', allSelected ? 'Tout deselectionner' : 'Tout selectionner');
+        button.setAttribute('aria-label', 'toggle break points');
         button.classList.toggle('is-on', allSelected);
         button.classList.toggle('is-partial', partial);
     },
@@ -1318,9 +1318,10 @@ export const ui = {
         ui.updateStepModeControl();
     },
     cycleStepMode: () => {
-        const order = ['micro', 'instruction', 'automatic'];
+        const order = ['micro', 'instruction'];
         const index = order.indexOf(ui.stepMode);
-        const next = order[(index + 1) % order.length];
+        const safeIndex = index >= 0 ? index : 1;
+        const next = order[(safeIndex + 1) % order.length];
         ui.setStepMode(next);
     },
     getStepModeLabel: () => {
@@ -1335,16 +1336,16 @@ export const ui = {
         button.setAttribute('aria-pressed', 'true');
         button.setAttribute('data-state', ui.stepMode);
         const modeMeta = {
-            micro: { icon: 'rectangle-horizontal', label: 'Mode Micro' },
-            instruction: { icon: 'rows-2', label: 'Mode Instruction' },
+            micro: { icon: 'between-vertical-start', label: 'Mode Micro' },
+            instruction: { icon: 'between-horizontal-start', label: 'Mode Instruction' },
             automatic: { icon: 'list-video', label: 'Mode Automatique' }
         };
         const current = modeMeta[ui.stepMode] || modeMeta.instruction;
         const useIconButton = button.classList.contains('icon-btn') || button.id === 'btn-step-mode';
         if (useIconButton) {
             button.innerHTML = `<i data-lucide="${current.icon}"></i>`;
-            button.setAttribute('title', current.label);
-            button.setAttribute('aria-label', current.label);
+            button.setAttribute('data-tooltip', 'toggle step size');
+            button.setAttribute('aria-label', `toggle step size (${current.label})`);
             refreshIcons();
         } else {
             button.innerText = ui.getStepModeLabel();
@@ -2125,10 +2126,14 @@ export const ui = {
             ui.lastPauseProbeLine = 0;
             btnRun.innerHTML = '<i data-lucide="square"></i>';
             btnRun.classList.add('btn-stop-mode');
+            btnRun.setAttribute('data-tooltip', 'play/stop');
+            btnRun.setAttribute('aria-label', 'play/stop');
             refreshIcons();
         } else {
             btnRun.innerHTML = '<i data-lucide="play"></i>';
             btnRun.classList.remove('btn-stop-mode');
+            btnRun.setAttribute('data-tooltip', 'play/stop');
+            btnRun.setAttribute('aria-label', 'play/stop');
             refreshIcons();
         }
         
