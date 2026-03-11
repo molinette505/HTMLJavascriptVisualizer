@@ -19,6 +19,7 @@
             <div class="toolbar-group event-controls">
                 <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" title="Charger une sauvegarde"><i data-lucide="folder-open"></i></button>
                 <button id="btn-breakpoints-toggle" class="icon-btn icon-btn-toggle" onclick="ui.toggleAllBreakpoints()" title="Tout selectionner les points d'arret" aria-pressed="false"><i data-lucide="octagon-pause"></i></button>
+                <button id="btn-step-mode" class="icon-btn icon-btn-toggle is-on" onclick="ui.cycleStepMode()" title="Mode Instruction" aria-pressed="true" aria-label="Mode Instruction"><i data-lucide="rows-2"></i></button>
                 <button id="btn-options" class="icon-btn" onclick="ui.toggleOptionsPopup()" title="Options"><i data-lucide="sliders-horizontal"></i></button>
             </div>
         </div>
@@ -50,12 +51,8 @@
             <div class="options-section">
                 <div class="options-section-title">Animation</div>
                 <div id="option-row-flow-line" class="option-row">
-                    <span>Ligne de liaison</span>
-                    <button id="btn-toggle-flow-line" class="toggle-btn is-on" onclick="ui.toggleFlowLine()">ON</button>
-                </div>
-                <div class="option-row">
-                    <span>Animation des donnees</span>
-                    <button id="btn-toggle-data-flow" class="toggle-btn is-on" onclick="ui.toggleDataFlow()">ON</button>
+                    <span>Visualisation lecture</span>
+                    <button id="btn-toggle-read-visualization" class="toggle-btn is-on" onclick="ui.cycleReadVisualizationMode()">Liaison + donnees</button>
                 </div>
             </div>
             <div class="options-section">

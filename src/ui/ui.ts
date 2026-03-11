@@ -739,11 +739,18 @@ const createDomFlyBadgeElement = (node) => {
 let flowGuideCounter = 1;
 
 const createFlowGuideLine = (sourceEl, destinationEl) => {
-    if (!sourceEl || !destinationEl || typeof document === 'undefined') return { stop: () => {} };
-    if (ui && ui.showFlowLine === false) return { stop: () => {} };
+    const noop = {
+        stop: () => {},
+        expand: async () => {},
+        collapse: async () => {},
+        show: () => {},
+        hide: () => {}
+    };
+    if (!sourceEl || !destinationEl || typeof document === 'undefined') return noop;
+    if (ui && ui.showFlowLine === false) return noop;
     const sourceTarget = getFlowVisualElement(sourceEl);
     const destinationTarget = getFlowVisualElement(destinationEl);
-    if (!sourceTarget || !destinationTarget) return { stop: () => {} };
+    if (!sourceTarget || !destinationTarget) return noop;
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.classList.add('flow-link-line');
@@ -801,7 +808,53 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
 
     document.body.appendChild(svg);
     let rafId = null;
+    let tweenId = null;
     let active = true;
+    let leadProgress = 0;
+    let trailProgress = 0;
+    const clamp = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+    const setProgress = (lead, trail) => {
+        leadProgress = clamp(lead);
+        trailProgress = clamp(trail);
+        if (trailProgress > leadProgress) trailProgress = leadProgress;
+    };
+    const tweenProgress = (toLead, toTrail, duration = 120, easing = 'out') => new Promise((resolve) => {
+        if (!active) { resolve(); return; }
+        const fromLead = leadProgress;
+        const fromTrail = trailProgress;
+        const targetLead = clamp(toLead);
+        const targetTrail = clamp(toTrail);
+        if (duration <= 0) {
+            setProgress(targetLead, targetTrail);
+            resolve();
+            return;
+        }
+        if (tweenId) cancelAnimationFrame(tweenId);
+        const startTime = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+            ? performance.now()
+            : Date.now();
+        const tick = (now) => {
+            if (!active) { resolve(); return; }
+            const elapsed = Math.max(0, now - startTime);
+            const ratio = Math.min(1, elapsed / duration);
+            let eased = ratio;
+            if (ratio < 1) {
+                if (easing === 'in') eased = Math.pow(ratio, 3);
+                else if (easing === 'out') eased = 1 - Math.pow(1 - ratio, 3);
+                else eased = ratio;
+            }
+            const nextLead = fromLead + (targetLead - fromLead) * eased;
+            const nextTrail = fromTrail + (targetTrail - fromTrail) * eased;
+            setProgress(nextLead, nextTrail);
+            if (ratio < 1) {
+                tweenId = requestAnimationFrame(tick);
+            } else {
+                tweenId = null;
+                resolve();
+            }
+        };
+        tweenId = requestAnimationFrame(tick);
+    });
     const update = () => {
         if (!active) return;
         const overlayRect = svg.getBoundingClientRect();
@@ -813,10 +866,15 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
         const startY = sourceRect.top + sourceRect.height / 2 - overlayRect.top;
         const endX = destinationRect.left + destinationRect.width / 2 - overlayRect.left;
         const endY = destinationRect.top + destinationRect.height / 2 - overlayRect.top;
-        const pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
+        const drawStartX = startX + (endX - startX) * trailProgress;
+        const drawStartY = startY + (endY - startY) * trailProgress;
+        const drawEndX = startX + (endX - startX) * leadProgress;
+        const drawEndY = startY + (endY - startY) * leadProgress;
+        const pathData = `M ${drawStartX} ${drawStartY} L ${drawEndX} ${drawEndY}`;
         svg.setAttribute('viewBox', `0 0 ${overlayWidth} ${overlayHeight}`);
         glowPath.setAttribute('d', pathData);
         corePath.setAttribute('d', pathData);
+        // Keep both endpoints visible and fixed for the full animation.
         sourceDot.setAttribute('cx', String(startX));
         sourceDot.setAttribute('cy', String(startY));
         destinationDot.setAttribute('cx', String(endX));
@@ -825,9 +883,14 @@ const createFlowGuideLine = (sourceEl, destinationEl) => {
     };
     update();
     return {
+        expand: (duration = 120) => tweenProgress(1, 0, duration, 'in'),
+        collapse: (duration = 120) => tweenProgress(1, 1, duration, 'out'),
+        show: () => setProgress(1, 0),
+        hide: () => setProgress(0, 0),
         stop: () => {
             active = false;
             if (rafId) cancelAnimationFrame(rafId);
+            if (tweenId) cancelAnimationFrame(tweenId);
             if (svg.parentElement) svg.remove();
         }
     };
@@ -861,6 +924,7 @@ export const ui = {
     p5RuntimeKey: '',
     domViewMode: 'tree',
     showDomRender: true,
+    readVisualizationMode: 'both',
     showFlowLine: true,
     showDataFlow: true,
     showMemoryTypes: false,
@@ -880,6 +944,9 @@ export const ui = {
         soft: false,
         line: 0
     },
+    stepMode: 'instruction',
+    pendingAutoMicroPause: false,
+    microSkipToNextInstruction: false,
     lastScopeStack: null,
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
@@ -890,13 +957,46 @@ export const ui = {
         document.getElementById('speed-display').innerText = ui.speedMultiplier + 'x';
         document.documentElement.style.setProperty('--time-scale', 1 / ui.speedMultiplier);
     },
+    getReadVisualizationLabel: (mode = ui.readVisualizationMode) => {
+        if (mode === 'line') return 'Liaison';
+        if (mode === 'data') return 'Donnees';
+        return 'Liaison + donnees';
+    },
+    setReadVisualizationMode: (mode = 'both') => {
+        const normalized = String(mode || '').trim().toLowerCase();
+        const nextMode = ['line', 'data', 'both'].includes(normalized) ? normalized : 'both';
+        ui.readVisualizationMode = nextMode;
+        ui.showFlowLine = nextMode !== 'data';
+        ui.showDataFlow = nextMode !== 'line';
+        if (!ui.showDataFlow) {
+            document.querySelectorAll('.flying-element').forEach((el) => el.remove());
+            document.querySelectorAll('.flying-dom-node').forEach((el) => el.remove());
+        }
+        if (!ui.showFlowLine) {
+            document.querySelectorAll('.flow-link-line').forEach((el) => el.remove());
+            document.querySelectorAll('.flow-link-highlight').forEach((el) => el.classList.remove('flow-link-highlight'));
+        }
+        ui.updateReadVisualizationControl();
+    },
+    updateReadVisualizationControl: () => {
+        const button = document.getElementById('btn-toggle-read-visualization');
+        if (!button) return;
+        button.innerText = ui.getReadVisualizationLabel();
+        button.classList.add('is-on');
+        button.setAttribute('aria-pressed', 'true');
+        button.setAttribute('data-state', ui.readVisualizationMode);
+    },
+    cycleReadVisualizationMode: () => {
+        const order = ['both', 'line', 'data'];
+        const index = order.indexOf(ui.readVisualizationMode);
+        const next = order[(index + 1) % order.length];
+        ui.setReadVisualizationMode(next);
+    },
     updateFlowLineControl: () => {
-        const button = document.getElementById('btn-toggle-flow-line');
-        applyToggleButtonState(button, ui.showFlowLine);
+        ui.updateReadVisualizationControl();
     },
     updateDataFlowControl: () => {
-        const button = document.getElementById('btn-toggle-data-flow');
-        applyToggleButtonState(button, ui.showDataFlow);
+        ui.updateReadVisualizationControl();
     },
     updateMemoryTypesControl: () => {
         const button = document.getElementById('btn-toggle-memory-types');
@@ -907,8 +1007,8 @@ export const ui = {
         applyToggleButtonState(button, ui.showMemoryAddresses);
     },
     updateDisplayOptionsControls: () => {
-        ui.updateFlowLineControl();
-        ui.updateDataFlowControl();
+        ui.updateReadVisualizationControl();
+        ui.updateStepModeControl();
         ui.updateMemoryTypesControl();
         ui.updateMemoryAddressesControl();
         ui.updateBreakpointsToggleControl();
@@ -942,8 +1042,13 @@ export const ui = {
     prepareBreakpointsForNewDocument: () => {
         ui.pendingBreakpointReinit = true;
     },
-    shouldFastForwardExecution: () => !ui.hasAnyBreakpoints(),
+    shouldFastForwardExecution: () => {
+        if (ui.stepMode === 'automatic') return false;
+        if (ui.stepMode === 'micro') return false;
+        return !ui.hasAnyBreakpoints();
+    },
     resumeExecutionIfNoBreakpoints: () => {
+        if (ui.stepMode === 'automatic') return;
         if (ui.hasAnyBreakpoints()) return;
         ui.skipMode = true;
         const running = Boolean(window.app && window.app.isRunning);
@@ -1154,7 +1259,7 @@ export const ui = {
         const normalized = Number(line);
         if (!Number.isFinite(normalized) || normalized <= 0) return false;
         const prev = Number(ui.lastPauseProbeLine);
-        let pauseDecision = false;
+        let softPauseBetweenLines = false;
         if (Number.isFinite(prev) && prev >= 0 && ui.softBreakpointLines.size > 0 && prev !== normalized) {
             const increasing = normalized > prev;
             const candidates = Array.from(ui.softBreakpointLines)
@@ -1165,9 +1270,26 @@ export const ui = {
                 ))
                 .sort((a, b) => increasing ? (a - b) : (b - a));
             if (candidates.length > 0) {
-                pauseDecision = { pause: true, pauseLine: candidates[0], soft: true };
+                softPauseBetweenLines = { pause: true, pauseLine: candidates[0], soft: true };
             }
         }
+        if (ui.stepMode === 'automatic') {
+            ui.lastPauseProbeLine = normalized;
+            return { pause: false, skipMode: false };
+        }
+        if (ui.stepMode === 'micro') {
+            if (softPauseBetweenLines) {
+                ui.lastPauseProbeLine = normalized;
+                return softPauseBetweenLines;
+            }
+            const hasHardBreakpoint = ui.breakpointLines.has(normalized);
+            const hasSoftBreakpoint = ui.softBreakpointLines.has(normalized);
+            ui.lastPauseProbeLine = normalized;
+            if (hasSoftBreakpoint) return { pause: true, pauseLine: normalized, soft: true };
+            if (hasHardBreakpoint) return true;
+            return { pause: false, skipMode: true };
+        }
+        let pauseDecision = softPauseBetweenLines;
         if (pauseDecision) {
             ui.lastPauseProbeLine = normalized;
             return pauseDecision;
@@ -1186,6 +1308,77 @@ export const ui = {
     resetPauseProbeLine: (line = 0) => {
         const normalized = Number(line);
         ui.lastPauseProbeLine = Number.isFinite(normalized) ? normalized : 0;
+    },
+    setStepMode: (mode = 'instruction') => {
+        const normalized = String(mode || '').trim().toLowerCase();
+        const nextMode = ['micro', 'instruction', 'automatic'].includes(normalized) ? normalized : 'instruction';
+        ui.stepMode = nextMode;
+        ui.pendingAutoMicroPause = false;
+        if (nextMode === 'automatic') ui.skipMode = false;
+        ui.updateStepModeControl();
+    },
+    cycleStepMode: () => {
+        const order = ['micro', 'instruction', 'automatic'];
+        const index = order.indexOf(ui.stepMode);
+        const next = order[(index + 1) % order.length];
+        ui.setStepMode(next);
+    },
+    getStepModeLabel: () => {
+        if (ui.stepMode === 'micro') return 'Micro';
+        if (ui.stepMode === 'automatic') return 'Automatique';
+        return 'Instruction';
+    },
+    updateStepModeControl: () => {
+        const button = document.getElementById('btn-step-mode') || document.getElementById('btn-toggle-step-mode');
+        if (!button) return;
+        button.classList.add('is-on');
+        button.setAttribute('aria-pressed', 'true');
+        button.setAttribute('data-state', ui.stepMode);
+        const modeMeta = {
+            micro: { icon: 'rectangle-horizontal', label: 'Mode Micro' },
+            instruction: { icon: 'rows-2', label: 'Mode Instruction' },
+            automatic: { icon: 'list-video', label: 'Mode Automatique' }
+        };
+        const current = modeMeta[ui.stepMode] || modeMeta.instruction;
+        const useIconButton = button.classList.contains('icon-btn') || button.id === 'btn-step-mode';
+        if (useIconButton) {
+            button.innerHTML = `<i data-lucide="${current.icon}"></i>`;
+            button.setAttribute('title', current.label);
+            button.setAttribute('aria-label', current.label);
+            refreshIcons();
+        } else {
+            button.innerText = ui.getStepModeLabel();
+        }
+    },
+    requestAutoMicroPause: () => {
+        ui.pendingAutoMicroPause = true;
+    },
+    pauseAtMicroCheckpoint: async () => {
+        ui.setStepButtonState(true);
+        await new Promise((resolve) => {
+            ui.currentWaitResolver = () => {
+                ui.currentWaitResolver = null;
+                resolve();
+            };
+        });
+        ui.setStepButtonState(false);
+    },
+    maybePauseAfterMicroStep: async () => {
+        if (ui.isStopping) return;
+        const appRunning = Boolean(window.app && window.app.isRunning);
+        if (!appRunning) return;
+        if (ui.stepMode === 'micro') {
+            if (ui.skipMode) return;
+            if (ui.microSkipToNextInstruction) return;
+            ui.skipMode = false;
+            await ui.pauseAtMicroCheckpoint();
+            return;
+        }
+        if (ui.stepMode === 'automatic' && ui.pendingAutoMicroPause) {
+            ui.pendingAutoMicroPause = false;
+            ui.skipMode = false;
+            await ui.pauseAtMicroCheckpoint();
+        }
     },
     setPauseContext: (context = {}) => {
         const line = Number(context && context.line);
@@ -1215,18 +1408,14 @@ export const ui = {
         ui.updateMemory(ui.lastScopeStack, null, 'none', null, false);
     },
     toggleFlowLine: () => {
-        ui.showFlowLine = !ui.showFlowLine;
-        ui.updateFlowLineControl();
+        if (ui.readVisualizationMode === 'both') ui.setReadVisualizationMode('data');
+        else if (ui.readVisualizationMode === 'data') ui.setReadVisualizationMode('both');
+        else ui.setReadVisualizationMode('both');
     },
     toggleDataFlow: () => {
-        ui.showDataFlow = !ui.showDataFlow;
-        ui.updateDataFlowControl();
-        if (!ui.showDataFlow) {
-            document.querySelectorAll('.flying-element').forEach((el) => el.remove());
-            document.querySelectorAll('.flying-dom-node').forEach((el) => el.remove());
-            document.querySelectorAll('.flow-link-line').forEach((el) => el.remove());
-            document.querySelectorAll('.flow-link-highlight').forEach((el) => el.classList.remove('flow-link-highlight'));
-        }
+        if (ui.readVisualizationMode === 'both') ui.setReadVisualizationMode('line');
+        else if (ui.readVisualizationMode === 'line') ui.setReadVisualizationMode('both');
+        else ui.setReadVisualizationMode('both');
     },
     toggleMemoryTypes: () => {
         ui.showMemoryTypes = !ui.showMemoryTypes;
@@ -1803,8 +1992,8 @@ export const ui = {
     wait: (ms) => { 
         if (ui.isStopping) return Promise.resolve();
         const appRunning = Boolean(window.app && window.app.isRunning);
-        if (appRunning && ui.shouldFastForwardExecution()) return Promise.resolve();
         if (ui.skipMode) return Promise.resolve(); 
+        if (appRunning && ui.shouldFastForwardExecution()) return Promise.resolve();
         return new Promise(resolve => {
             ui.currentWaitResolver = resolve;
             setTimeout(() => {
@@ -1901,6 +2090,8 @@ export const ui = {
         ui.currentWaitResolver = null;
         ui.lastPauseProbeLine = null;
         ui.pauseContext = { soft: false, line: 0 };
+        ui.pendingAutoMicroPause = false;
+        ui.microSkipToNextInstruction = false;
     },
     updateLineNumbers: (text) => {
         const lines = Math.max(1, String(text || '').split('\n').length);
@@ -1950,6 +2141,7 @@ export const ui = {
         if(!running) {
             ui.hideCodeValueTooltip();
             ui.pauseContext = { soft: false, line: 0 };
+            ui.pendingAutoMicroPause = false;
             const lineNumbers = document.getElementById('line-numbers');
             if (lineNumbers) {
                 lineNumbers.querySelectorAll('.line-number-item.is-current-line, .line-number-item.is-stack-frame').forEach((element) => {
@@ -2174,18 +2366,21 @@ export const ui = {
         if (!sourceEl || !destinationEl || typeof flyCallback !== 'function') return;
         if (!ui.showDataFlow) {
             const guide = createFlowGuideLine(sourceEl, destinationEl);
-            await ui.wait(40);
+            const expandDuration = Math.min(180, Math.max(110, ui.baseDelay * 0.2));
+            const holdDuration = Math.min(220, Math.max(120, ui.baseDelay * 0.2));
+            const collapseDuration = Math.min(160, Math.max(90, ui.baseDelay * 0.16));
+            await guide.expand(expandDuration);
+            await ui.wait(holdDuration);
             await flyCallback();
-            await ui.wait(40);
+            await ui.wait(holdDuration);
+            await guide.collapse(collapseDuration);
             guide.stop();
             return;
         }
-        const guide = createFlowGuideLine(sourceEl, destinationEl);
         ui.setFlowHighlight([sourceEl, destinationEl], true);
-        await ui.wait(180);
+        await ui.wait(90);
         await flyCallback();
-        await ui.wait(160);
-        guide.stop();
+        await ui.wait(90);
         ui.setFlowHighlight([sourceEl, destinationEl], false);
         await ui.wait(120);
     },
@@ -2927,24 +3122,48 @@ export const ui = {
         if(flashVarName && openDrawer) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
+        const snapshotVarNamesForScope = (scope) => Object.keys(scope.variables).filter((name) => {
+            if (name === 'document') return false;
+            const entry = scope.variables[name];
+            if (!entry) return false;
+            return entry.declared !== false;
+        });
         const visibleVarNamesForScope = (scope) => Object.keys(scope.variables).filter((name) => {
             if (name === 'document') return false;
             const entry = scope.variables[name];
             if (!entry || entry.hidden === true) return false;
             return entry.declared !== false;
         });
+        const snapshotScopes = scopeStack.filter((scope) => {
+            const names = snapshotVarNamesForScope(scope);
+            return names.length > 0 || scope.name === 'Global';
+        });
         const visibleScopes = scopeStack.filter((scope) => {
             const names = visibleVarNamesForScope(scope);
             return names.length > 0 || scope.name === 'Global';
         });
         const arrayOwners = new Map();
-        visibleScopes.forEach((scope) => {
-            visibleVarNamesForScope(scope).forEach((name) => {
+        snapshotScopes.forEach((scope) => {
+            snapshotVarNamesForScope(scope).forEach((name) => {
                 const currentValue = scope.variables[name].value;
                 if (Array.isArray(currentValue)) {
                     const heapId = ui.getHeapId(currentValue);
                     if (heapId && !arrayOwners.has(heapId)) arrayOwners.set(heapId, name);
                 }
+            });
+        });
+        snapshotScopes.forEach((scope) => {
+            snapshotVarNamesForScope(scope).forEach((name) => {
+                const v = scope.variables[name];
+                const heapId = Array.isArray(v.value) ? ui.getHeapId(v.value) : null;
+                const owner = heapId ? arrayOwners.get(heapId) : null;
+                const isArrayRef = Boolean(Array.isArray(v.value) && owner && owner !== name);
+                ui.currentMemoryVarSnapshot.set(name, {
+                    value: v.value,
+                    initialized: v.initialized !== false,
+                    functionAlias: v.functionAlias || null,
+                    arrayOwner: isArrayRef ? owner : null
+                });
             });
         });
         const visibleIds = new Set(visibleScopes.map(s => s.id));
@@ -3016,12 +3235,6 @@ export const ui = {
                 const heapId = Array.isArray(v.value) ? ui.getHeapId(v.value) : null;
                 const owner = heapId ? arrayOwners.get(heapId) : null;
                 const isArrayRef = Boolean(Array.isArray(v.value) && owner && owner !== name);
-                ui.currentMemoryVarSnapshot.set(name, {
-                    value: v.value,
-                    initialized: v.initialized !== false,
-                    functionAlias: v.functionAlias || null,
-                    arrayOwner: isArrayRef ? owner : null
-                });
                 if (!groupDiv) { groupDiv = document.createElement('div'); groupDiv.id = groupId; groupDiv.className = 'memory-group'; groupDiv.setAttribute('data-var-name', name); groupDiv.classList.add('cell-entry'); varsContainer.appendChild(groupDiv); }
                 const shouldFlash = (
                     name === flashVarName
@@ -3162,15 +3375,23 @@ export const ui = {
             const startX = start.left + (start.width - fRect.width) / 2;
             const startY = start.top + (start.height - fRect.height) / 2;
             flyer.style.left = `${startX}px`; flyer.style.top = `${startY}px`;
-            if (delayStart) await ui.wait(150);
+            if (delayStart) await ui.wait(20);
             if (ui.isStopping) { flyer.remove(); return; }
             const endX = end.left + (end.width - fRect.width) / 2;
             const endY = end.top + (end.height - fRect.height) / 2;
             const dx = endX - startX; const dy = endY - startY;
-            await ui.wait(20);
-            flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1)`; 
+            const expandDuration = Math.min(180, Math.max(110, ui.baseDelay * 0.2));
+            const holdBeforeFlight = Math.min(220, Math.max(120, ui.baseDelay * 0.2));
+            const holdAfterFlight = Math.min(220, Math.max(120, ui.baseDelay * 0.2));
+            const collapseDuration = Math.min(160, Math.max(90, ui.baseDelay * 0.16));
+            await guide.expand(expandDuration);
+            await ui.wait(holdBeforeFlight);
+            flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1)`;
             flyer.style.transform = `translate(${dx}px, ${dy}px)`;
-            await ui.wait(ui.baseDelay); await ui.wait(100); flyer.remove();
+            await ui.wait(ui.baseDelay);
+            await ui.wait(holdAfterFlight);
+            await guide.collapse(collapseDuration);
+            flyer.remove();
         } finally {
             guide.stop();
         }
@@ -3210,32 +3431,45 @@ export const ui = {
             const startY = start.top + (start.height - fRect.height) / 2;
             flyer.style.left = `${startX}px`;
             flyer.style.top = `${startY}px`;
-            if (delayStart) await ui.wait(150);
+            if (delayStart) await ui.wait(20);
             if (ui.isStopping) { flyer.remove(); return; }
             const endX = end.left + (end.width - fRect.width) / 2;
             const endY = end.top + (end.height - fRect.height) / 2;
             const dx = endX - startX;
             const dy = endY - startY;
-            await ui.wait(20);
+            const expandDuration = Math.min(180, Math.max(110, ui.baseDelay * 0.2));
+            const holdBeforeFlight = Math.min(220, Math.max(120, ui.baseDelay * 0.2));
+            const holdAfterFlight = Math.min(220, Math.max(120, ui.baseDelay * 0.2));
+            const collapseDuration = Math.min(160, Math.max(90, ui.baseDelay * 0.16));
+            await guide.expand(expandDuration);
+            await ui.wait(holdBeforeFlight);
             flyer.style.transition = `transform ${ui.baseDelay / ui.speedMultiplier}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ui.baseDelay / ui.speedMultiplier}ms ease`;
             flyer.style.transform = `translate(${dx}px, ${dy}px) scale(0.95)`;
             flyer.style.opacity = '0.95';
             await ui.wait(ui.baseDelay);
-            await ui.wait(100);
+            await ui.wait(holdAfterFlight);
+            await guide.collapse(collapseDuration);
             flyer.remove();
         } finally {
             guide.stop();
         }
     },
 
-    animateAssignment: async (varName, value, targetTokenId, index = null, varTokenId = null, codeIndexTokenId = null) => {
+    animateAssignment: async (varName, value, targetTokenId, index = null, varTokenId = null, codeIndexTokenId = null, options = null) => {
         if (ui.skipMode || ui.isStopping) return;
+        const onArrive = options && typeof options.onArrive === 'function' ? options.onArrive : null;
         await ui.ensureDrawerOpen('memory');
         await ui.wait(220);
         const tokenEl = document.getElementById(targetTokenId);
         const { memEl, closePortal } = ui.resolveMemoryValueTarget(varName, index);
         if (memEl && memEl.id) ui.ensureVisible(memEl.id);
-        if (!tokenEl || !memEl) { closePortal(); return; }
+        if (!tokenEl) { closePortal(); return; }
+        if (!memEl) {
+            if (onArrive) await onArrive();
+            await ui.maybePauseAfterMicroStep();
+            closePortal();
+            return;
+        }
         const arrayRowEl = memEl.closest('.array-element');
         if (arrayRowEl) arrayRowEl.classList.add('array-cell-focus');
         const memoryCell = memEl.closest('.memory-cell');
@@ -3244,15 +3478,32 @@ export const ui = {
         try {
             await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
                 await ui.flyHelper(value, tokenEl, memEl, false);
+                if (onArrive) {
+                    await onArrive();
+                    return;
+                }
+                const valueContent = memEl.querySelector('.mem-val-content');
+                if (!valueContent) return;
+                if (isVirtualDomValue(value)) {
+                    valueContent.innerHTML = buildDomInlineValueMarkup(value);
+                    return;
+                }
+                if (Array.isArray(value) && (index === null || index === undefined)) {
+                    valueContent.textContent = `length=${value.length}`;
+                    return;
+                }
+                valueContent.textContent = valueToVisualText(value);
             });
         } finally {
             clearVarHighlight();
             if (arrayRowEl) arrayRowEl.classList.remove('array-cell-focus');
             closePortal();
         }
+        await ui.maybePauseAfterMicroStep();
     },
-    animateRead: async (varName, value, targetTokenId, index = null, varTokenId = null, codeIndexTokenId = null) => {
+    animateRead: async (varName, value, targetTokenId, index = null, varTokenId = null, codeIndexTokenId = null, options = null) => {
         if (ui.skipMode || ui.isStopping) return;
+        const onArrive = options && typeof options.onArrive === 'function' ? options.onArrive : null;
         await ui.ensureDrawerOpen('memory');
         await ui.wait(220);
         const { memEl, closePortal } = ui.resolveMemoryValueTarget(varName, index);
@@ -3261,7 +3512,14 @@ export const ui = {
             ? ui.createCodeExpressionTarget(targetTokenId)
             : { target: document.getElementById(targetTokenId), elements: [], clear: () => {} };
         const tokenEl = expressionTarget.target;
-        if (!tokenEl || !memEl) { expressionTarget.clear(); closePortal(); return; }
+        if (!tokenEl) { expressionTarget.clear(); closePortal(); return; }
+        if (!memEl) {
+            if (onArrive) await onArrive();
+            expressionTarget.clear();
+            await ui.maybePauseAfterMicroStep();
+            closePortal();
+            return;
+        }
         const firstTokenId = Array.isArray(targetTokenId) ? targetTokenId[0] : targetTokenId;
         const arrayRowEl = memEl.closest('.array-element');
         if (arrayRowEl) arrayRowEl.classList.add('array-cell-focus');
@@ -3271,6 +3529,7 @@ export const ui = {
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
                 await ui.flyHelper(value, memEl, tokenEl, false);
+                if (onArrive) await onArrive();
             });
         } finally {
             expressionTarget.clear();
@@ -3278,6 +3537,7 @@ export const ui = {
             if (arrayRowEl) arrayRowEl.classList.remove('array-cell-focus');
             closePortal();
         }
+        await ui.maybePauseAfterMicroStep();
     },
     visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(120); },
     animateReadHeader: async (varName, value, targetTokenId) => {
@@ -3302,6 +3562,7 @@ export const ui = {
             expressionTarget.clear();
             clearVarHighlight();
         }
+        await ui.maybePauseAfterMicroStep();
     },
     animateReturnHeader: async (varName, value, targetTokenId) => { await ui.animateReadHeader(varName, value, targetTokenId); },
     animateSpliceRead: async (varName, values, targetTokenId, startIndex) => {
@@ -3327,6 +3588,7 @@ export const ui = {
             clearVarHighlight();
             closePortal();
         }
+        await ui.maybePauseAfterMicroStep();
     },
     animateOperationCollapse: async (domIds, result) => {
         if (ui.skipMode || ui.isStopping) return;
@@ -3379,6 +3641,7 @@ export const ui = {
             if (elements[index] === target) continue;
             elements[index].style.display = 'none';
         }
+        await ui.maybePauseAfterMicroStep();
     },
     animateReturnToCall: async (callDomIds, result, sourceId = null) => {
         const elements = (callDomIds || [])
@@ -3395,6 +3658,7 @@ export const ui = {
             elements.forEach((element) => {
                 if (element !== targetEl) element.style.display = 'none';
             });
+            await ui.maybePauseAfterMicroStep();
             return;
         }
         if (sourceId) {
@@ -3412,6 +3676,7 @@ export const ui = {
         elements.forEach((element) => {
             if (element !== targetEl) element.style.display = 'none';
         });
+        await ui.maybePauseAfterMicroStep();
     },
     animateParamPass: async (value, sourceId, targetId) => { if (ui.skipMode || ui.isStopping) return; const sourceEl = document.getElementById(sourceId); const targetEl = document.getElementById(targetId); await ui.flyHelper(value, sourceEl, targetEl); }
 };

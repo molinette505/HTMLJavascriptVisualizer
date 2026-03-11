@@ -243,6 +243,11 @@
             text-align: right;
             outline: none;
         }
+        .option-value-inline {
+            color: var(--text-dim);
+            font-size: 11px;
+            font-weight: 600;
+        }
         .load-label {
             color: var(--text-dim);
             font-size: 11px;
@@ -328,7 +333,11 @@
             color: #bfdbfe;
             background: rgba(59, 130, 246, 0.18);
         }
-        
+        #btn-toggle-read-visualization {
+            min-width: 154px;
+            padding: 0 10px;
+            font-size: 11px;
+        }
         #speed-display {
             width: 35px; text-align: center; font-family: monospace;
             font-size: 12px; color: var(--accent); font-weight: bold;
@@ -1329,9 +1338,8 @@
         }
         .flow-link-path-core {
             stroke-width: 2.6px;
-            stroke-dasharray: 10 8;
             opacity: 0.98;
-            animation: flowLineDash 0.65s linear infinite;
+            animation: none;
         }
         .flow-link-endpoint {
             stroke: rgba(219, 234, 254, 0.9);

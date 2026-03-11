@@ -62,6 +62,7 @@ export class Interpreter {
         this.pauseSuppressionDepth = 0;
         this.pendingPauseLineOverride = null;
         this.pendingPauseSoft = false;
+        this.pendingPauseSkipMode = null;
     }
 
     applyInitialGlobals() {
@@ -389,6 +390,7 @@ export class Interpreter {
     shouldPause(line) {
         this.pendingPauseLineOverride = null;
         this.pendingPauseSoft = false;
+        this.pendingPauseSkipMode = null;
         if (typeof this.shouldPauseAtLine !== 'function') return true;
         try {
             const decision = this.shouldPauseAtLine(line);
@@ -403,6 +405,9 @@ export class Interpreter {
                 }
                 if (Object.prototype.hasOwnProperty.call(decision, 'soft')) {
                     this.pendingPauseSoft = Boolean(decision.soft);
+                }
+                if (Object.prototype.hasOwnProperty.call(decision, 'skipMode')) {
+                    this.pendingPauseSkipMode = Boolean(decision.skipMode);
                 }
                 if (Object.prototype.hasOwnProperty.call(decision, 'pause')) {
                     return Boolean(decision.pause);
@@ -424,6 +429,10 @@ export class Interpreter {
     }
     async pause(line) {
         if (this.shouldStop) throw new Error("STOP");
+        if (this.ui && this.ui.stepMode === 'micro' && this.ui.microSkipToNextInstruction) {
+            this.ui.microSkipToNextInstruction = false;
+            this.ui.skipMode = false;
+        }
         if (this.pauseSuppressionDepth > 0) return;
         const shouldPauseNow = this.shouldPause(line);
         const pauseLine = shouldPauseNow
@@ -434,11 +443,13 @@ export class Interpreter {
             )
             : line;
         const pauseIsSoft = shouldPauseNow ? Boolean(this.pendingPauseSoft) : false;
+        const skipModeOverride = this.pendingPauseSkipMode;
         this.pendingPauseLineOverride = null;
         this.pendingPauseSoft = false;
+        this.pendingPauseSkipMode = null;
         this.lastPausedLine = pauseLine;
         if (!shouldPauseNow) {
-            this.ui.skipMode = true;
+            this.ui.skipMode = (typeof skipModeOverride === 'boolean') ? skipModeOverride : true;
             return;
         }
         if (this.ui && typeof this.ui.setPauseContext === 'function') {
@@ -702,14 +713,17 @@ export class Interpreter {
             await this.pause(node.line);
             const hasOwnBinding = Object.prototype.hasOwnProperty.call(this.currentScope.variables, node.name);
             const existingBinding = hasOwnBinding ? this.currentScope.variables[node.name] : null;
+            let declarationVisualized = false;
             if (!hasOwnBinding) {
                 this.currentScope.define(node.name, node.kind);
                 await this.ui.updateMemory(this.scopeStack, node.name, 'declare');
                 await this.ui.wait(600);
+                declarationVisualized = true;
             } else if (existingBinding && existingBinding.declared === false) {
                 existingBinding.declared = true;
                 await this.ui.updateMemory(this.scopeStack, node.name, 'declare');
                 await this.ui.wait(600);
+                declarationVisualized = true;
             }
             const varTokenId = this.getIdentifierTokenId(node.domIds, node.name);
             if (node.init) {
@@ -747,6 +761,10 @@ export class Interpreter {
             } else if (hasOwnBinding && this.currentScope.variables[node.name].initialized === false) {
                 this.currentScope.initialize(node.name, undefined);
                 await this.ui.updateMemory(this.scopeStack, node.name, 'write');
+                declarationVisualized = true;
+            }
+            if (!node.init && declarationVisualized && this.ui && typeof this.ui.maybePauseAfterMicroStep === 'function') {
+                await this.ui.maybePauseAfterMicroStep();
             }
         }
         else if (node instanceof Assignment) {
@@ -840,7 +858,18 @@ export class Interpreter {
                 }
             }
         }
-        else if (node instanceof CallExpr) { await this.pause(node.line); await this.evaluate(node); }
+        else if (node instanceof CallExpr) {
+            await this.pause(node.line);
+            node.__suppressResultVisual = true;
+            try {
+                await this.evaluate(node, { suppressResultVisual: true });
+            } finally {
+                delete node.__suppressResultVisual;
+            }
+            // Appel expression seul (ex: tableau.pop();) :
+            // on garde les effets de bord, mais on n'affiche pas la valeur de retour dans le code.
+            this.ui.resetVisuals();
+        }
         else if (node instanceof UpdateExpr) { await this.pause(node.line); await this.evaluate(node); }
         else if (node instanceof IfStmt) { await this.pause(node.line); const test = await this.evaluate(node.test); this.ui.lockTokens(node.test.domIds||[]); let res; try { if (test) { if (node.consequent instanceof BlockStmt) res = await this.executeBlock(node.consequent.body); else res = await this.execute(node.consequent); } else if (node.alternate) { if (node.alternate instanceof BlockStmt) res = await this.executeBlock(node.alternate.body); else res = await this.execute(node.alternate); } } finally { this.ui.unlockTokens(node.test.domIds||[]); } if (res) return res; }
         else if (node instanceof WhileStmt) {
@@ -1142,7 +1171,7 @@ export class Interpreter {
         return this.renderTemplateSegments(segments, false, true);
     }
 
-    async evaluate(node) {
+    async evaluate(node, options = {}) {
         if (node instanceof Literal) {
             if (node.isTemplate) {
                 const tokenId = node.domIds && node.domIds.length > 0 ? node.domIds[0] : null;
@@ -1176,10 +1205,18 @@ export class Interpreter {
             if (variable.value && variable.value.type === 'arrow_func') return variable.value;
             if (variable.value && variable.value.type === 'function_expr') return variable.value;
             if (variable.value && variable.value.type === 'function_decl_ref') return variable.value;
-            await this.ui.animateRead(node.name, variable.value, node.domIds[0]);
-            this.ui.replaceTokenText(node.domIds[0], variable.value, true);
-            for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
-            await this.ui.wait(120);
+            await this.ui.animateRead(node.name, variable.value, node.domIds[0], null, null, null, {
+                onArrive: async () => {
+                    this.ui.replaceTokenText(node.domIds[0], variable.value, true);
+                    for (let i = 1; i < node.domIds.length; i++) {
+                        const el = document.getElementById(node.domIds[i]);
+                        if (!el) continue;
+                        if (!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], { original: el.innerText, transient: true });
+                        el.style.display = 'none';
+                    }
+                    await this.ui.wait(120);
+                }
+            });
             return variable.value;
         }
         if (node instanceof MemberExpr) {
@@ -1206,13 +1243,16 @@ export class Interpreter {
                 const sourceIndexTokenId = (node.computed && node.property)
                     ? this.getExpressionDisplayTokenId(node.property)
                     : null;
-                await this.ui.animateRead(node.object.name, val, node.domIds, prop, sourceVarTokenId, sourceIndexTokenId);
-                const replacementTargetId = this.getExpressionDisplayTokenId(node) || (node.domIds && node.domIds.length > 0 ? node.domIds[0] : null);
-                if (replacementTargetId) {
-                    this.ui.replaceTokenText(replacementTargetId, val, true);
-                    this.collapseExpressionTokens(node.domIds, replacementTargetId);
-                }
-                await this.ui.wait(120);
+                await this.ui.animateRead(node.object.name, val, node.domIds, prop, sourceVarTokenId, sourceIndexTokenId, {
+                    onArrive: async () => {
+                        const replacementTargetId = this.getExpressionDisplayTokenId(node) || (node.domIds && node.domIds.length > 0 ? node.domIds[0] : null);
+                        if (replacementTargetId) {
+                            this.ui.replaceTokenText(replacementTargetId, val, true);
+                            this.collapseExpressionTokens(node.domIds, replacementTargetId);
+                        }
+                        await this.ui.wait(120);
+                    }
+                });
                 return val;
             }
             if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) {
@@ -1253,7 +1293,11 @@ export class Interpreter {
             const isInc = node.op === '++';
             const newVal = isInc ? currentVal + 1 : currentVal - 1;
             const varTokenId = this.getIdentifierTokenId(node.arg.domIds, name);
-            await this.ui.animateRead(name, currentVal, node.arg.domIds[0]);
+            await this.ui.animateRead(name, currentVal, node.arg.domIds[0], null, varTokenId, null, {
+                onArrive: async () => {
+                    this.ui.replaceTokenText(node.arg.domIds[0], currentVal, true);
+                }
+            });
             if (node.prefix) {
                 await this.ui.animateOperationCollapse(node.domIds, newVal);
                 await this.ui.wait(800);
@@ -1277,6 +1321,20 @@ export class Interpreter {
         if (node instanceof TernaryExpr) { const condition = await this.evaluate(node.test); const result = condition ? await this.evaluate(node.consequent) : await this.evaluate(node.alternate); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof BinaryExpr) { const left = await this.evaluate(node.left); if (node.op === '&&' && !left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, false); await this.ui.wait(800); return false; } if (node.op === '||' && left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, true); await this.ui.wait(800); return true; } const right = await this.evaluate(node.right); let result; switch(node.op) { case '+': result = left + right; break; case '-': result = left - right; break; case '*': result = left * right; break; case '/': result = left / right; break; case '%': result = left % right; break; case '>': result = left > right; break; case '<': result = left < right; break; case '>=': result = left >= right; break; case '<=': result = left <= right; break; case '==': result = left == right; break; case '!=': result = left != right; break; case '===': result = left === right; break; case '!==': result = left !== right; break; case '&&': result = left && right; break; case '||': result = left || right; break; } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof CallExpr) {
+            const suppressResultVisual = Boolean(options && options.suppressResultVisual) || Boolean(node.__suppressResultVisual);
+            const showCollapseResult = async (result, waitMs = 800) => {
+                if (suppressResultVisual) return;
+                await this.ui.animateOperationCollapse(node.domIds, result);
+                if (waitMs > 0) await this.ui.wait(waitMs);
+            };
+            const showCallResultReplacement = async (result, waitMs = 800) => {
+                if (suppressResultVisual) return;
+                const callTargetTokenId = this.getCallReplacementTokenId(node);
+                node.resultTokenId = callTargetTokenId;
+                this.ui.replaceTokenText(callTargetTokenId, result, true);
+                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                if (waitMs > 0) await this.ui.wait(waitMs);
+            };
             const argValues = []; for (const arg of node.args) argValues.push(await this.evaluate(arg)); await this.ui.wait(800);
             if (node.callee instanceof Identifier) {
                 let nativeBinding = null;
@@ -1288,8 +1346,7 @@ export class Interpreter {
                 const nativeFn = nativeBinding && nativeBinding.value;
                 if (typeof nativeFn === 'function' && nativeFn.__nativeCallable === true) {
                     const result = await nativeFn(...argValues);
-                    await this.ui.animateOperationCollapse(node.domIds, result);
-                    await this.ui.wait(300);
+                    await showCollapseResult(result, 300);
                     return result;
                 }
             }
@@ -1341,10 +1398,10 @@ export class Interpreter {
                 } else { obj = await this.evaluate(node.callee.object); }
                 if (Array.isArray(obj) && arrName) {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value; let result;
-                    if (method === 'push') { const newIndex = obj.length; for (let i = 0; i < argValues.length; i++) { const val = argValues[i]; const currentIdx = newIndex + i; obj[currentIdx] = undefined; await this.ui.updateMemory(this.scopeStack); if (node.args[i]) { await this.ui.animateAssignment(arrName, val, node.args[i].domIds[0], currentIdx, arrVarTokenId); } obj[currentIdx] = val; await this.ui.updateMemory(this.scopeStack, arrName, 'write', currentIdx); } result = obj.length; await this.ui.animateReturnHeader(arrName, result, node.domIds); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; } 
-                    else if (method === 'pop') { const lastIndex = obj.length - 1; const val = obj[lastIndex]; await this.ui.animateRead(arrName, val, node.domIds, lastIndex, arrVarTokenId); await this.ui.animateArrayPop(arrName, lastIndex); result = obj.pop(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
-                    else if (method === 'splice') { const start = argValues[0]; const count = argValues[1] || 0; const removedItems = obj.slice(start, start + count); if (removedItems.length > 0) { const indicesToHighlight = []; for(let i=0; i<count; i++) indicesToHighlight.push(start + i); await this.ui.highlightArrayElements(arrName, indicesToHighlight, 'delete'); await this.ui.wait(500); await this.ui.animateSpliceRead(arrName, removedItems, node.domIds, start); } result = obj.splice(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
-                    else if (method === 'slice') { const start = argValues.length > 0 ? argValues[0] : 0; const normalizedStart = typeof start === 'number' && start < 0 ? Math.max(obj.length + start, 0) : (start || 0); result = obj.slice(...argValues); if (result.length > 0) { await this.ui.animateSpliceRead(arrName, result, node.domIds, normalizedStart); } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
+                    if (method === 'push') { const newIndex = obj.length; for (let i = 0; i < argValues.length; i++) { const val = argValues[i]; const currentIdx = newIndex + i; obj[currentIdx] = undefined; await this.ui.updateMemory(this.scopeStack); if (node.args[i]) { await this.ui.animateAssignment(arrName, val, node.args[i].domIds[0], currentIdx, arrVarTokenId); } obj[currentIdx] = val; await this.ui.updateMemory(this.scopeStack, arrName, 'write', currentIdx); } result = obj.length; if (!suppressResultVisual) await this.ui.animateReturnHeader(arrName, result, node.domIds); await showCollapseResult(result, 800); return result; } 
+                    else if (method === 'pop') { const lastIndex = obj.length - 1; const val = obj[lastIndex]; await this.ui.animateRead(arrName, val, node.domIds, lastIndex, arrVarTokenId); await this.ui.animateArrayPop(arrName, lastIndex); result = obj.pop(); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); await showCollapseResult(result, 800); return result; }
+                    else if (method === 'splice') { const start = argValues[0]; const count = argValues[1] || 0; const removedItems = obj.slice(start, start + count); if (removedItems.length > 0) { const indicesToHighlight = []; for(let i=0; i<count; i++) indicesToHighlight.push(start + i); await this.ui.highlightArrayElements(arrName, indicesToHighlight, 'delete'); await this.ui.wait(500); await this.ui.animateSpliceRead(arrName, removedItems, node.domIds, start); } result = obj.splice(...argValues); await this.ui.updateMemory(this.scopeStack, arrName, 'write'); await showCollapseResult(result, 800); return result; }
+                    else if (method === 'slice') { const start = argValues.length > 0 ? argValues[0] : 0; const normalizedStart = typeof start === 'number' && start < 0 ? Math.max(obj.length + start, 0) : (start || 0); result = obj.slice(...argValues); if (result.length > 0) { await this.ui.animateSpliceRead(arrName, result, node.domIds, normalizedStart); } await showCollapseResult(result, 800); return result; }
                     if (method === 'shift') {
                         if (obj.length === 0) {
                             result = undefined;
@@ -1363,8 +1420,7 @@ export class Interpreter {
                             result = firstVal;
                             await this.ui.updateMemory(this.scopeStack, arrName, 'write');
                         }
-                        await this.ui.animateOperationCollapse(node.domIds, result);
-                        await this.ui.wait(800);
+                        await showCollapseResult(result, 800);
                         return result;
                     }
                     if (method === 'unshift') {
@@ -1390,9 +1446,8 @@ export class Interpreter {
                             }
                         }
                         result = obj.length;
-                        await this.ui.animateReturnHeader(arrName, result, node.domIds);
-                        await this.ui.animateOperationCollapse(node.domIds, result);
-                        await this.ui.wait(800);
+                        if (!suppressResultVisual) await this.ui.animateReturnHeader(arrName, result, node.domIds);
+                        await showCollapseResult(result, 800);
                         return result;
                     }
                     if (result !== undefined) return result;
@@ -1401,8 +1456,7 @@ export class Interpreter {
                     const method = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value;
                     if (['replace', 'toUpperCase', 'trim', 'includes', 'slice'].includes(method) && typeof obj[method] === 'function') {
                         const result = obj[method](...argValues);
-                        await this.ui.animateOperationCollapse(node.domIds, result);
-                        await this.ui.wait(800);
+                        await showCollapseResult(result, 800);
                         return result;
                     }
                 }
@@ -1442,11 +1496,7 @@ export class Interpreter {
                             if (domOwnerName && domOwnerName !== 'document') {
                                 await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write', null, !domNodeVisible);
                             }
-                            const callTargetTokenId = this.getCallReplacementTokenId(node);
-                            node.resultTokenId = callTargetTokenId;
-                            this.ui.replaceTokenText(callTargetTokenId, result, true);
-                            this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                            await this.ui.wait(800);
+                            await showCallResultReplacement(result, 800);
                             return result;
                         }
                         if (styleProxy && domOwner && (method === 'addProperty' || method === 'setProperty' || method === 'removeProperty')) {
@@ -1488,22 +1538,14 @@ export class Interpreter {
                             if (domOwnerName && domOwnerName !== 'document') {
                                 await this.ui.updateMemory(this.scopeStack, domOwnerName, 'write', null, !domNodeVisible);
                             }
-                            const callTargetTokenId = this.getCallReplacementTokenId(node);
-                            node.resultTokenId = callTargetTokenId;
-                            this.ui.replaceTokenText(callTargetTokenId, result, true);
-                            this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                            await this.ui.wait(800);
+                            await showCallResultReplacement(result, 800);
                             return result;
                         }
                         if (isVirtualDomValue(obj)) {
                             let result;
                             if (method === 'addEventListener' || method === 'removeEventListener') {
                                 result = obj[method](...argValues);
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                                await this.ui.wait(500);
+                                await showCallResultReplacement(result, 500);
                                 return result;
                             }
                             if (method === 'click') {
@@ -1548,11 +1590,7 @@ export class Interpreter {
                                     if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
                                 }
                                 this.refreshDomView();
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                                await this.ui.wait(800);
+                                await showCallResultReplacement(result, 800);
                                 return result;
                             }
                             if (method === 'removeChild') {
@@ -1578,16 +1616,12 @@ export class Interpreter {
                                     if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, sourceTokenId, argValues[0]);
                                 }
                                 this.refreshDomView();
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                                await this.ui.wait(800);
+                                await showCallResultReplacement(result, 800);
                                 return result;
                             }
                             if (['getElementById', 'querySelector'].includes(method)) {
                                 result = obj[method](...argValues);
-                                if (result) {
+                                if (result && !suppressResultVisual) {
                                     const callTargetTokenId = this.getCallReplacementTokenId(node);
                                     node.resultTokenId = callTargetTokenId;
                                     if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(result, callTargetTokenId, result, node.domIds);
@@ -1598,12 +1632,14 @@ export class Interpreter {
                             }
                             if (method === 'getAttribute') {
                                 result = obj[method](...argValues);
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
                                 const attrName = (argValues.length > 0) ? String(argValues[0]) : '';
-                                if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, callTargetTokenId, result, node.domIds, attrName);
-                                else this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                if (!suppressResultVisual) {
+                                    const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                    node.resultTokenId = callTargetTokenId;
+                                    if (typeof this.ui.animateDomReadToToken === 'function') await this.ui.animateDomReadToToken(obj, callTargetTokenId, result, node.domIds, attrName);
+                                    else this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                    this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                }
                                 return result;
                             }
                             if (method === 'setAttribute') {
@@ -1641,11 +1677,7 @@ export class Interpreter {
                                 if (arrName && arrName !== 'document') {
                                     await this.ui.updateMemory(this.scopeStack, arrName, 'write', null, !domNodeVisible);
                                 }
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                                await this.ui.wait(800);
+                                await showCallResultReplacement(result, 800);
                                 return result;
                             }
                             if (method === 'removeAttribute') {
@@ -1682,40 +1714,33 @@ export class Interpreter {
                                 if (arrName && arrName !== 'document') {
                                     await this.ui.updateMemory(this.scopeStack, arrName, 'write', null, !domNodeVisible);
                                 }
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                                await this.ui.wait(800);
+                                await showCallResultReplacement(result, 800);
                                 return result;
                             }
                             if (method === 'createElement') {
                                 result = obj[method](...argValues);
-                                const callTargetTokenId = this.getCallReplacementTokenId(node);
-                                node.resultTokenId = callTargetTokenId;
                                 const tokenEls = (node.domIds || []).map((id) => document.getElementById(id)).filter(Boolean);
-                                if (tokenEls.length > 0 && typeof this.ui.setFlowHighlight === 'function') this.ui.setFlowHighlight(tokenEls, true);
-                                await this.ui.wait(180);
-                                this.ui.replaceTokenText(callTargetTokenId, result, true);
-                                await this.ui.wait(180);
-                                if (tokenEls.length > 0 && typeof this.ui.setFlowHighlight === 'function') this.ui.setFlowHighlight(tokenEls, false);
-                                this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                                await this.ui.wait(220);
+                                if (!suppressResultVisual) {
+                                    const callTargetTokenId = this.getCallReplacementTokenId(node);
+                                    node.resultTokenId = callTargetTokenId;
+                                    if (tokenEls.length > 0 && typeof this.ui.setFlowHighlight === 'function') this.ui.setFlowHighlight(tokenEls, true);
+                                    await this.ui.wait(180);
+                                    this.ui.replaceTokenText(callTargetTokenId, result, true);
+                                    await this.ui.wait(180);
+                                    if (tokenEls.length > 0 && typeof this.ui.setFlowHighlight === 'function') this.ui.setFlowHighlight(tokenEls, false);
+                                    this.collapseExpressionTokens(node.domIds, callTargetTokenId);
+                                    await this.ui.wait(220);
+                                }
                                 return result;
                             }
                             result = obj[method](...argValues);
                             this.refreshDomView();
                             if (typeof this.ui.animateDomMutation === 'function') await this.ui.animateDomMutation(obj, null, result);
-                            const callTargetTokenId = this.getCallReplacementTokenId(node);
-                            node.resultTokenId = callTargetTokenId;
-                            this.ui.replaceTokenText(callTargetTokenId, result, true);
-                            this.collapseExpressionTokens(node.domIds, callTargetTokenId);
-                            await this.ui.wait(800);
+                            await showCallResultReplacement(result, 800);
                             return result;
                         }
                         const result = obj[method](...argValues);
-                        await this.ui.animateOperationCollapse(node.domIds, result);
-                        await this.ui.wait(800);
+                        await showCollapseResult(result, 800);
                         return result;
                     }
                 }
@@ -1735,21 +1760,19 @@ export class Interpreter {
             if (node.callee instanceof Identifier) { 
                 if (node.callee.name === 'parseInt') { 
                     const res = parseInt(...argValues); 
-                    await this.ui.animateOperationCollapse(node.domIds, res); 
-                    await this.ui.wait(800); 
+                    await showCollapseResult(res, 800);
                     return res; 
                 } 
                 if (node.callee.name.startsWith('Math.')) { 
                     const method = node.callee.name.split('.')[1]; 
                     if (typeof Math[method] === 'function') {
                         let res = Math[method](...argValues); 
-                        await this.ui.animateOperationCollapse(node.domIds, res); 
-                        await this.ui.wait(800); 
+                        await showCollapseResult(res, 800);
                         return res; 
                     }
                 } 
             }
-            if (node.callee instanceof MemberExpr) { const objVal = await this.evaluate(node.callee.object); const propName = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value; if (propName === 'toFixed' && typeof objVal === 'number') { const digits = argValues.length > 0 ? argValues[0] : 0; const res = objVal.toFixed(digits); await this.ui.animateOperationCollapse(node.domIds, `"${res}"`); await this.ui.wait(800); return res; } }
+            if (node.callee instanceof MemberExpr) { const objVal = await this.evaluate(node.callee.object); const propName = node.callee.property instanceof Identifier ? node.callee.property.name : node.callee.property.value; if (propName === 'toFixed' && typeof objVal === 'number') { const digits = argValues.length > 0 ? argValues[0] : 0; const res = objVal.toFixed(digits); await showCollapseResult(`"${res}"`, 800); return res; } }
             let funcNode; let closureScope = this.globalScope; let paramNames = []; let funcName = "anonymous"; let paramIds = []; let calleeDisplayName = null;
             if (node.callee instanceof Identifier) {
                 funcName = node.callee.name;
@@ -1783,9 +1806,12 @@ export class Interpreter {
             }
             if (funcNode) {
                 if (calleeDisplayName && node.callee && node.callee.domIds && node.callee.domIds.length > 0) {
-                    await this.ui.animateRead(node.callee.name, calleeDisplayName, node.callee.domIds[0], null, node.callee.domIds[0]);
-                    this.ui.setRawTokenText(node.callee.domIds[0], calleeDisplayName, true);
-                    await this.ui.wait(180);
+                    await this.ui.animateRead(node.callee.name, calleeDisplayName, node.callee.domIds[0], null, node.callee.domIds[0], null, {
+                        onArrive: async () => {
+                            this.ui.setRawTokenText(node.callee.domIds[0], calleeDisplayName, true);
+                            await this.ui.wait(180);
+                        }
+                    });
                 }
                 const displayFuncName = calleeDisplayName || funcName;
                 const fnScope = new Scope(`${displayFuncName}(${paramNames.join(', ')})`, closureScope, this.currentScope);
@@ -1841,7 +1867,7 @@ export class Interpreter {
                         result = await this.evaluate(body);
                         returnSourceId = body.domIds ? body.domIds[0] : null;
                     }
-                    if (result !== undefined) {
+                    if (!suppressResultVisual && result !== undefined) {
                         if(returnSourceId) await this.ui.animateReturnToCall(node.domIds, result, returnSourceId);
                         else await this.ui.animateReturnToCall(node.domIds, result);
                         await this.ui.wait(800);

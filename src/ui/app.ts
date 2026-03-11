@@ -267,7 +267,7 @@ const buildP5RuntimeDocument = ({
     canvas.style.maxWidth = '100%';
     canvas.style.display = 'block';
     canvas.style.borderRadius = '12px';
-    canvas.style.background = '#0f172a';
+    canvas.style.background = 'transparent';
     if (!existing) document.body.appendChild(canvas);
     const ctx = canvas.getContext('2d');
     state.canvas = canvas;
@@ -724,8 +724,8 @@ export const app = {
         const hiddenCallable = (value) => ({ kind: 'const', value, hidden: true });
 
         return {
-            width: { kind: 'let', value: Number(app.p5CanvasSize.width) || 520 },
-            height: { kind: 'let', value: Number(app.p5CanvasSize.height) || 300 },
+            width: { kind: 'let', value: Number(app.p5CanvasSize.width) || 520, hidden: true },
+            height: { kind: 'let', value: Number(app.p5CanvasSize.height) || 300, hidden: true },
             deltaTime: { kind: 'let', value: app.getP5TargetDeltaMs(), hidden: true },
             frameCount: { kind: 'let', value: 0, hidden: true },
             createCanvas: {
@@ -882,6 +882,17 @@ export const app = {
         if(app.interpreter) app.interpreter.nextStep();
     },
     stepAnimated: () => {
+        if (ui.currentWaitResolver) {
+            const resolver = ui.currentWaitResolver;
+            ui.currentWaitResolver = null;
+            ui.skipMode = false;
+            resolver();
+            return;
+        }
+        if (ui.stepMode === 'automatic') {
+            if (typeof ui.requestAutoMicroPause === 'function') ui.requestAutoMicroPause();
+            return;
+        }
         const resumeRealtime = typeof ui.consumeSoftPauseContext === 'function'
             ? ui.consumeSoftPauseContext()
             : false;
@@ -894,15 +905,33 @@ export const app = {
         app.nextStep();
     },
     stepInstant: () => { 
-        if (typeof ui.consumeSoftPauseContext === 'function') ui.consumeSoftPauseContext();
         if (ui.currentWaitResolver) {
-            ui.skipMode = true; 
-            ui.currentWaitResolver(); 
+            const resolver = ui.currentWaitResolver;
             ui.currentWaitResolver = null;
-        } else {
-            ui.skipMode = true; 
-            app.nextStep(); 
+            if (ui.stepMode === 'micro') {
+                ui.microSkipToNextInstruction = true;
+                ui.skipMode = true;
+            } else {
+                ui.skipMode = true;
+            }
+            if (typeof ui.consumeSoftPauseContext === 'function') ui.consumeSoftPauseContext();
+            resolver();
+            return;
         }
+        if (ui.stepMode === 'micro') {
+            ui.microSkipToNextInstruction = true;
+            ui.skipMode = true;
+            app.nextStep();
+            return;
+        }
+        if (ui.stepMode === 'automatic') {
+            // Ignore le reste de l'instruction en cours, puis reprend en automatique.
+            ui.skipMode = true;
+            return;
+        }
+        if (typeof ui.consumeSoftPauseContext === 'function') ui.consumeSoftPauseContext();
+        ui.skipMode = true; 
+        app.nextStep(); 
     },
     
     stop: () => { 
@@ -1132,9 +1161,15 @@ export const app = {
     applyEmbedUiOptions: (options) => {
         if (!options || typeof options !== 'object') return false;
 
-        if (typeof options.flowLineEnabled === 'boolean') {
-            ui.showFlowLine = options.flowLineEnabled;
-            ui.updateFlowLineControl();
+        if (typeof options.readVisualizationMode === 'string' && typeof ui.setReadVisualizationMode === 'function') {
+            ui.setReadVisualizationMode(options.readVisualizationMode);
+        } else if (typeof options.flowLineEnabled === 'boolean' || typeof options.dataFlowEnabled === 'boolean') {
+            const flowEnabled = typeof options.flowLineEnabled === 'boolean' ? options.flowLineEnabled : ui.showFlowLine;
+            const dataEnabledRaw = typeof options.dataFlowEnabled === 'boolean' ? options.dataFlowEnabled : ui.showDataFlow;
+            const dataEnabled = (!flowEnabled && !dataEnabledRaw) ? true : dataEnabledRaw;
+            if (flowEnabled && dataEnabled) ui.setReadVisualizationMode('both');
+            else if (flowEnabled) ui.setReadVisualizationMode('line');
+            else ui.setReadVisualizationMode('data');
         }
 
         if (typeof options.showFlowLineToggle === 'boolean') {
@@ -1159,6 +1194,10 @@ export const app = {
             ? options.p5ModeEnabled
             : ((typeof options.p5Enabled === 'boolean') ? options.p5Enabled : null);
         if (p5ModeCandidate !== null) app.setP5Mode(p5ModeCandidate, false);
+
+        if (typeof options.stepMode === 'string' && typeof ui.setStepMode === 'function') {
+            ui.setStepMode(options.stepMode);
+        }
 
         const p5FrameRateCandidate = Object.prototype.hasOwnProperty.call(options, 'p5FrameRate')
             ? options.p5FrameRate
