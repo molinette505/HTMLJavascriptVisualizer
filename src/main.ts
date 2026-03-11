@@ -206,6 +206,36 @@ window.requestAnimationFrame(() => {
     ui.positionOptionsPopup();
 });
 
+const updateToolbarWrapState = () => {
+    const toolbar = document.querySelector('.toolbar');
+    const toolbarMain = document.querySelector('.toolbar-main');
+    const editorModeGroup = document.querySelector('.editor-mode-group');
+    const settingsGroup = document.querySelector('.settings-group');
+    if (!toolbar || !toolbarMain || !editorModeGroup || !settingsGroup) return;
+
+    const wasWrapped = toolbar.classList.contains('toolbar-needs-wrap');
+    if (wasWrapped) toolbar.classList.remove('toolbar-needs-wrap');
+
+    const toolbarStyle = window.getComputedStyle(toolbar);
+    const horizontalPadding = (parseFloat(toolbarStyle.paddingLeft) || 0) + (parseFloat(toolbarStyle.paddingRight) || 0);
+    const columnGap = parseFloat(toolbarStyle.columnGap || toolbarStyle.gap || '0') || 0;
+    const availableWidth = Math.max(0, toolbar.clientWidth - horizontalPadding);
+
+    const mainWidth = toolbarMain.scrollWidth;
+    const editorWidth = editorModeGroup.getBoundingClientRect().width;
+    const settingsWidth = settingsGroup.getBoundingClientRect().width;
+    const totalRequired = mainWidth + editorWidth + settingsWidth + (columnGap * 2);
+
+    toolbar.classList.toggle('toolbar-needs-wrap', totalRequired > availableWidth + 0.5);
+};
+
+window.addEventListener('resize', updateToolbarWrapState);
+window.requestAnimationFrame(updateToolbarWrapState);
+window.setTimeout(updateToolbarWrapState, 80);
+if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+    document.fonts.ready.then(updateToolbarWrapState).catch(() => {});
+}
+
 document.addEventListener('click', (event) => {
     const popup = document.getElementById('options-popup');
     if (!popup || !popup.classList.contains('visible')) return;
