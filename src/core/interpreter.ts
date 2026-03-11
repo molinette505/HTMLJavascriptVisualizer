@@ -47,6 +47,59 @@ export class Interpreter {
         this.domDocument = createVirtualDocument(this.initialDomHtml);
         this.lastPausedLine = 0;
         this.isHandlingEvent = false;
+        this.initialGlobals = (options && typeof options.initialGlobals === 'object' && options.initialGlobals)
+            ? options.initialGlobals
+            : {};
+        this.onReadyForEvents = (options && typeof options.onReadyForEvents === 'function')
+            ? options.onReadyForEvents
+            : null;
+        this.shouldPauseAtLine = (options && typeof options.shouldPauseAtLine === 'function')
+            ? options.shouldPauseAtLine
+            : null;
+        this.shouldFastForwardExecution = (options && typeof options.shouldFastForwardExecution === 'function')
+            ? options.shouldFastForwardExecution
+            : null;
+        this.pauseSuppressionDepth = 0;
+        this.pendingPauseLineOverride = null;
+        this.pendingPauseSoft = false;
+    }
+
+    applyInitialGlobals() {
+        const entries = Object.entries(this.initialGlobals || {});
+        for (const [name, descriptor] of entries) {
+            if (!name || name === 'document') continue;
+            const hasDescriptor = descriptor && typeof descriptor === 'object' && Object.prototype.hasOwnProperty.call(descriptor, 'value');
+            const value = hasDescriptor ? descriptor.value : descriptor;
+            const kind = hasDescriptor && descriptor.kind ? descriptor.kind : 'const';
+            if (!Object.prototype.hasOwnProperty.call(this.globalScope.variables, name)) {
+                this.globalScope.define(name, kind);
+            }
+            if (this.globalScope.variables[name].initialized === false) {
+                this.globalScope.initialize(name, value);
+            } else {
+                this.globalScope.variables[name].value = value;
+            }
+            if (hasDescriptor) {
+                this.globalScope.variables[name].hidden = Boolean(descriptor.hidden);
+            }
+        }
+    }
+
+    setGlobalValue(name, value) {
+        if (!name) return false;
+        if (!Object.prototype.hasOwnProperty.call(this.globalScope.variables, name)) {
+            this.globalScope.define(name, 'let');
+            this.globalScope.initialize(name, value);
+            return true;
+        }
+        const variable = this.globalScope.variables[name];
+        if (!variable) return false;
+        if (variable.initialized === false) {
+            this.globalScope.initialize(name, value);
+            return true;
+        }
+        variable.value = value;
+        return true;
     }
 
     async start(code) { 
@@ -58,6 +111,7 @@ export class Interpreter {
         this.currentScope = this.globalScope;
         this.globalScope.define('document', 'const');
         this.globalScope.initialize('document', this.domDocument);
+        this.applyInitialGlobals();
         this.scopeStack = [this.globalScope]; 
         this.lastPausedLine = 0;
         this.isHandlingEvent = false;
@@ -76,6 +130,13 @@ export class Interpreter {
             this.ui.log("--- Fin de l'exécution. En attente d'événements... ---", "info");
             // Mode écoute activé
             this.ui.setEventMode(true);
+            if (typeof this.onReadyForEvents === 'function') {
+                try {
+                    await this.onReadyForEvents(this);
+                } catch (readyError) {
+                    await this.logRuntimeError(readyError, "Erreur");
+                }
+            }
         } catch (e) { 
             if (e.message !== "STOP") { 
                 await this.logRuntimeError(e, "Erreur");
@@ -87,11 +148,13 @@ export class Interpreter {
         }
     }
     
-    async invokeEvent(funcName) {
+    async invokeEvent(funcName, options = {}) {
         if (this.shouldStop) return;
         if (this.isHandlingEvent) return;
+        const quiet = Boolean(options && options.quiet);
         this.isHandlingEvent = true;
         this.callStack = [];
+        if (this.ui && typeof this.ui.resetPauseProbeLine === 'function') this.ui.resetPauseProbeLine(0);
         
         // Désactiver les contrôles
         const triggerBtn = (typeof document !== 'undefined') ? document.getElementById('btn-trigger') : null;
@@ -106,7 +169,7 @@ export class Interpreter {
         callNode.domIds = []; 
         
         try {
-            this.ui.log(`> Événement: ${funcName}()`, "info");
+            if (!quiet) this.ui.log(`> Événement: ${funcName}()`, "info");
             await this.evaluate(callNode);
         } catch (e) {
             await this.logRuntimeError(e, "Erreur evenement");
@@ -205,6 +268,7 @@ export class Interpreter {
         const previousScope = this.currentScope;
         let callFramePushed = false;
         try {
+            if (this.ui && typeof this.ui.resetPauseProbeLine === 'function') this.ui.resetPauseProbeLine(0);
             for (let index = 0; index < callable.paramNames.length; index++) {
                 const paramName = callable.paramNames[index];
                 const paramValue = index < argValues.length ? argValues[index] : undefined;
@@ -250,6 +314,7 @@ export class Interpreter {
         const previousScope = this.currentScope;
         let callFramePushed = false;
         try {
+            if (this.ui && typeof this.ui.resetPauseProbeLine === 'function') this.ui.resetPauseProbeLine(0);
             inlineScope.define('event', 'const');
             inlineScope.initialize('event', eventPayload);
             await this.ui.updateMemory(this.scopeStack, 'event', 'declare');
@@ -321,19 +386,82 @@ export class Interpreter {
 
     async nextStep() { if (this.resolveNext) { const r = this.resolveNext; this.resolveNext = null; r(); } }
     stop() { this.shouldStop = true; if (this.resolveNext) this.resolveNext(); }
+    shouldPause(line) {
+        this.pendingPauseLineOverride = null;
+        this.pendingPauseSoft = false;
+        if (typeof this.shouldPauseAtLine !== 'function') return true;
+        try {
+            const decision = this.shouldPauseAtLine(line);
+            if (decision && typeof decision === 'object') {
+                const pauseLine = Number(
+                    Object.prototype.hasOwnProperty.call(decision, 'pauseLine')
+                        ? decision.pauseLine
+                        : decision.line
+                );
+                if (Number.isFinite(pauseLine) && pauseLine > 0) {
+                    this.pendingPauseLineOverride = pauseLine;
+                }
+                if (Object.prototype.hasOwnProperty.call(decision, 'soft')) {
+                    this.pendingPauseSoft = Boolean(decision.soft);
+                }
+                if (Object.prototype.hasOwnProperty.call(decision, 'pause')) {
+                    return Boolean(decision.pause);
+                }
+                return true;
+            }
+            return Boolean(decision);
+        } catch (error) {
+            return true;
+        }
+    }
+    shouldFastForward() {
+        if (typeof this.shouldFastForwardExecution !== 'function') return false;
+        try {
+            return Boolean(this.shouldFastForwardExecution());
+        } catch (error) {
+            return false;
+        }
+    }
     async pause(line) {
         if (this.shouldStop) throw new Error("STOP");
-        this.lastPausedLine = line;
+        if (this.pauseSuppressionDepth > 0) return;
+        const shouldPauseNow = this.shouldPause(line);
+        const pauseLine = shouldPauseNow
+            ? (
+                Number.isFinite(this.pendingPauseLineOverride) && this.pendingPauseLineOverride > 0
+                    ? this.pendingPauseLineOverride
+                    : line
+            )
+            : line;
+        const pauseIsSoft = shouldPauseNow ? Boolean(this.pendingPauseSoft) : false;
+        this.pendingPauseLineOverride = null;
+        this.pendingPauseSoft = false;
+        this.lastPausedLine = pauseLine;
+        if (!shouldPauseNow) {
+            this.ui.skipMode = true;
+            return;
+        }
+        if (this.ui && typeof this.ui.setPauseContext === 'function') {
+            this.ui.setPauseContext({ soft: pauseIsSoft, line: pauseLine });
+        }
         this.ui.skipMode = false;
         this.ui.setStepButtonState(false);
         this.ui.resetVisuals();
-        const activeLines = [...this.callStack, line];
+        const activeLines = [...this.callStack, pauseLine];
         this.ui.highlightLines(activeLines);
         await this.ui.updateMemory(this.scopeStack);
         this.ui.setStepButtonState(true);
         await new Promise(r => { this.resolveNext = r; });
         this.ui.setStepButtonState(false);
         if (this.shouldStop) throw new Error("STOP");
+    }
+    async executeWithSuppressedPause(node) {
+        this.pauseSuppressionDepth += 1;
+        try {
+            return await this.execute(node);
+        } finally {
+            this.pauseSuppressionDepth = Math.max(0, this.pauseSuppressionDepth - 1);
+        }
     }
     buildPedagogicalStack(lineHint = this.lastPausedLine) {
         const currentLine = Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : null;
@@ -363,7 +491,7 @@ export class Interpreter {
             if (allowVarRedeclare) return;
             throw new Error(`Variable ${node.name} déjà déclarée`);
         }
-        this.currentScope.define(node.name, node.kind);
+        this.currentScope.define(node.name, node.kind, false);
         if (node.kind === 'var') this.currentScope.initialize(node.name, undefined);
     }
     hoistDeclarations(stmts) {
@@ -573,8 +701,13 @@ export class Interpreter {
         if (node instanceof VarDecl) {
             await this.pause(node.line);
             const hasOwnBinding = Object.prototype.hasOwnProperty.call(this.currentScope.variables, node.name);
+            const existingBinding = hasOwnBinding ? this.currentScope.variables[node.name] : null;
             if (!hasOwnBinding) {
                 this.currentScope.define(node.name, node.kind);
+                await this.ui.updateMemory(this.scopeStack, node.name, 'declare');
+                await this.ui.wait(600);
+            } else if (existingBinding && existingBinding.declared === false) {
+                existingBinding.declared = true;
                 await this.ui.updateMemory(this.scopeStack, node.name, 'declare');
                 await this.ui.wait(600);
             }
@@ -776,7 +909,8 @@ export class Interpreter {
                     if (node.init instanceof VarDecl || node.init instanceof BlockStmt || node.init instanceof MultiVarDecl) await this.execute(node.init);
                     else {
                         if (node.init instanceof Assignment || node.init instanceof UpdateExpr || node.init instanceof CallExpr) {
-                            await this.execute(node.init);
+                            await this.pause(node.line);
+                            await this.executeWithSuppressedPause(node.init);
                         } else {
                             await this.pause(node.init.line);
                             await this.evaluate(node.init);
@@ -784,16 +918,10 @@ export class Interpreter {
                     }
                 }
                 while (true) {
-                    let testLocked = false;
                     if (node.test) {
                         await this.pause(node.line);
                         const test = await this.evaluate(node.test);
-                        this.ui.lockTokens(node.test.domIds || []);
-                        testLocked = true;
-                        if (!test) {
-                            this.ui.unlockTokens(node.test.domIds || []);
-                            break;
-                        }
+                        if (!test) break;
                     }
 
                     const iterationScope = new Scope("Loop", this.currentScope, this.currentScope);
@@ -810,23 +938,21 @@ export class Interpreter {
                     }
 
                     if (bodyResult === 'BREAK') {
-                        if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
                         break;
                     }
                     if (bodyResult && bodyResult.__isReturn) {
-                        if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
                         return bodyResult;
                     }
 
                     if (node.update) {
                         if (node.update instanceof Assignment || node.update instanceof UpdateExpr || node.update instanceof CallExpr) {
-                            await this.execute(node.update);
+                            await this.pause(node.line);
+                            await this.executeWithSuppressedPause(node.update);
                         } else {
                             await this.pause(node.line);
                             await this.evaluate(node.update);
                         }
                     }
-                    if (testLocked) this.ui.unlockTokens(node.test.domIds || []);
                 }
             } finally {
                 this.currentScope = prevScope;
@@ -1053,7 +1179,7 @@ export class Interpreter {
             await this.ui.animateRead(node.name, variable.value, node.domIds[0]);
             this.ui.replaceTokenText(node.domIds[0], variable.value, true);
             for(let i=1; i<node.domIds.length; i++) { const el = document.getElementById(node.domIds[i]); if(el) { if(!this.ui.modifiedTokens.has(node.domIds[i])) this.ui.modifiedTokens.set(node.domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } }
-            await this.ui.wait(800);
+            await this.ui.wait(120);
             return variable.value;
         }
         if (node instanceof MemberExpr) {
@@ -1081,8 +1207,12 @@ export class Interpreter {
                     ? this.getExpressionDisplayTokenId(node.property)
                     : null;
                 await this.ui.animateRead(node.object.name, val, node.domIds, prop, sourceVarTokenId, sourceIndexTokenId);
-                await this.ui.animateOperationCollapse(node.domIds, val);
-                await this.ui.wait(800);
+                const replacementTargetId = this.getExpressionDisplayTokenId(node) || (node.domIds && node.domIds.length > 0 ? node.domIds[0] : null);
+                if (replacementTargetId) {
+                    this.ui.replaceTokenText(replacementTargetId, val, true);
+                    this.collapseExpressionTokens(node.domIds, replacementTargetId);
+                }
+                await this.ui.wait(120);
                 return val;
             }
             if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) {
@@ -1117,11 +1247,52 @@ export class Interpreter {
             this.setMemberPropertyHoverSnapshot(node, genericValue);
             return genericValue;
         }
-        if (node instanceof UpdateExpr) { const name = node.arg.name; const currentVal = this.currentScope.get(name).value; const isInc = node.op === '++'; const newVal = isInc ? currentVal + 1 : currentVal - 1; const varTokenId = this.getIdentifierTokenId(node.arg.domIds, name); await this.ui.animateRead(name, currentVal, node.arg.domIds[0]); if (node.prefix) { await this.ui.animateOperationCollapse(node.domIds, newVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0], null, varTokenId); await this.ui.updateMemory(this.scopeStack, name, 'write'); return newVal; } else { await this.ui.animateOperationCollapse(node.domIds, currentVal); await this.ui.wait(800); this.currentScope.assign(name, newVal); await this.ui.animateAssignment(name, newVal, node.domIds[0], null, varTokenId); await this.ui.updateMemory(this.scopeStack, name, 'write'); return currentVal; } }
+        if (node instanceof UpdateExpr) {
+            const name = node.arg.name;
+            const currentVal = this.currentScope.get(name).value;
+            const isInc = node.op === '++';
+            const newVal = isInc ? currentVal + 1 : currentVal - 1;
+            const varTokenId = this.getIdentifierTokenId(node.arg.domIds, name);
+            await this.ui.animateRead(name, currentVal, node.arg.domIds[0]);
+            if (node.prefix) {
+                await this.ui.animateOperationCollapse(node.domIds, newVal);
+                await this.ui.wait(800);
+                this.currentScope.assign(name, newVal);
+                const sourceTokenId = this.getExpressionDisplayTokenId(node) || node.domIds[0];
+                this.ui.replaceTokenText(sourceTokenId, newVal, true);
+                await this.ui.animateAssignment(name, newVal, sourceTokenId, null, varTokenId);
+                await this.ui.updateMemory(this.scopeStack, name, 'write');
+                return newVal;
+            } else {
+                await this.ui.animateOperationCollapse(node.domIds, currentVal);
+                await this.ui.wait(800);
+                this.currentScope.assign(name, newVal);
+                const sourceTokenId = this.getExpressionDisplayTokenId(node) || node.domIds[0];
+                this.ui.replaceTokenText(sourceTokenId, newVal, true);
+                await this.ui.animateAssignment(name, newVal, sourceTokenId, null, varTokenId);
+                await this.ui.updateMemory(this.scopeStack, name, 'write');
+                return currentVal;
+            }
+        }
         if (node instanceof TernaryExpr) { const condition = await this.evaluate(node.test); const result = condition ? await this.evaluate(node.consequent) : await this.evaluate(node.alternate); await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof BinaryExpr) { const left = await this.evaluate(node.left); if (node.op === '&&' && !left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, false); await this.ui.wait(800); return false; } if (node.op === '||' && left) { if (node.right instanceof Identifier) { try { const val = this.currentScope.get(node.right.name).value; await this.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await this.ui.animateOperationCollapse(node.domIds, true); await this.ui.wait(800); return true; } const right = await this.evaluate(node.right); let result; switch(node.op) { case '+': result = left + right; break; case '-': result = left - right; break; case '*': result = left * right; break; case '/': result = left / right; break; case '%': result = left % right; break; case '>': result = left > right; break; case '<': result = left < right; break; case '>=': result = left >= right; break; case '<=': result = left <= right; break; case '==': result = left == right; break; case '!=': result = left != right; break; case '===': result = left === right; break; case '!==': result = left !== right; break; case '&&': result = left && right; break; case '||': result = left || right; break; } await this.ui.animateOperationCollapse(node.domIds, result); await this.ui.wait(800); return result; }
         if (node instanceof CallExpr) {
             const argValues = []; for (const arg of node.args) argValues.push(await this.evaluate(arg)); await this.ui.wait(800);
+            if (node.callee instanceof Identifier) {
+                let nativeBinding = null;
+                try {
+                    nativeBinding = this.currentScope.get(node.callee.name);
+                } catch (error) {
+                    nativeBinding = null;
+                }
+                const nativeFn = nativeBinding && nativeBinding.value;
+                if (typeof nativeFn === 'function' && nativeFn.__nativeCallable === true) {
+                    const result = await nativeFn(...argValues);
+                    await this.ui.animateOperationCollapse(node.domIds, result);
+                    await this.ui.wait(300);
+                    return result;
+                }
+            }
             if (node.callee instanceof MemberExpr) {
                 let obj; let arrName = null; let arrVarTokenId = null;
                 let domOwner = null;

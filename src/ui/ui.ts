@@ -856,11 +856,30 @@ export const ui = {
     codeValueTooltipBound: false,
     domDocument: null,
     domCss: '',
+    p5ModeEnabled: false,
+    p5RuntimeSrcdoc: '',
+    p5RuntimeKey: '',
     domViewMode: 'tree',
     showDomRender: true,
     showFlowLine: true,
+    showDataFlow: true,
     showMemoryTypes: false,
     showMemoryAddresses: false,
+    breakpointLines: new Set(),
+    softBreakpointLines: new Set(),
+    lineCount: 0,
+    breakpointsInitialized: false,
+    breakpointsDefaultAll: true,
+    pendingBreakpointReinit: false,
+    lineNumberHandlersBound: false,
+    breakpointDragActive: false,
+    breakpointDragValue: true,
+    breakpointDragPointerId: null,
+    lastPauseProbeLine: null,
+    pauseContext: {
+        soft: false,
+        line: 0
+    },
     lastScopeStack: null,
     
     speeds: [0.1, 0.25, 0.5, 1, 1.5, 2, 4],
@@ -875,6 +894,10 @@ export const ui = {
         const button = document.getElementById('btn-toggle-flow-line');
         applyToggleButtonState(button, ui.showFlowLine);
     },
+    updateDataFlowControl: () => {
+        const button = document.getElementById('btn-toggle-data-flow');
+        applyToggleButtonState(button, ui.showDataFlow);
+    },
     updateMemoryTypesControl: () => {
         const button = document.getElementById('btn-toggle-memory-types');
         applyToggleButtonState(button, ui.showMemoryTypes);
@@ -885,8 +908,296 @@ export const ui = {
     },
     updateDisplayOptionsControls: () => {
         ui.updateFlowLineControl();
+        ui.updateDataFlowControl();
         ui.updateMemoryTypesControl();
         ui.updateMemoryAddressesControl();
+        ui.updateBreakpointsToggleControl();
+    },
+    hasAnyBreakpoints: () => (ui.breakpointLines.size + ui.softBreakpointLines.size) > 0,
+    countHardBreakpointCandidates: () => {
+        const count = Math.max(1, Number(ui.lineCount) || 1);
+        let candidates = 0;
+        for (let line = 1; line <= count; line++) {
+            if (!ui.isEmptyEditorLine(line)) candidates += 1;
+        }
+        return candidates;
+    },
+    getEditorLineText: (line) => {
+        const normalized = Number(line);
+        if (!Number.isFinite(normalized) || normalized <= 0) return '';
+        const input = document.getElementById('code-input');
+        if (!input) return '';
+        const lines = String(input.value || '').split('\n');
+        return lines[normalized - 1] || '';
+    },
+    isEmptyEditorLine: (line) => String(ui.getEditorLineText(line)).trim().length === 0,
+    clearBreakpoints: (resumeIfNeeded = false) => {
+        ui.breakpointLines.clear();
+        ui.softBreakpointLines.clear();
+        ui.breakpointsDefaultAll = false;
+        ui.refreshLineNumberBreakpointClasses();
+        ui.updateBreakpointsToggleControl();
+        if (resumeIfNeeded) ui.resumeExecutionIfNoBreakpoints();
+    },
+    prepareBreakpointsForNewDocument: () => {
+        ui.pendingBreakpointReinit = true;
+    },
+    shouldFastForwardExecution: () => !ui.hasAnyBreakpoints(),
+    resumeExecutionIfNoBreakpoints: () => {
+        if (ui.hasAnyBreakpoints()) return;
+        ui.skipMode = true;
+        const running = Boolean(window.app && window.app.isRunning);
+        if (!running) return;
+        if (window.app && typeof window.app.stepInstant === 'function') {
+            window.app.stepInstant();
+        }
+    },
+    setBreakpointState: (line, enabled) => {
+        const normalized = Number(line);
+        if (!Number.isFinite(normalized) || normalized <= 0) return false;
+        if (enabled) {
+            if (ui.isEmptyEditorLine(normalized)) return false;
+            ui.breakpointLines.add(normalized);
+            ui.softBreakpointLines.delete(normalized);
+        }
+        else ui.breakpointLines.delete(normalized);
+        return true;
+    },
+    setSoftBreakpointState: (line, enabled) => {
+        const normalized = Number(line);
+        if (!Number.isFinite(normalized) || normalized <= 0) return false;
+        if (enabled) {
+            ui.softBreakpointLines.add(normalized);
+            ui.breakpointLines.delete(normalized);
+        } else {
+            ui.softBreakpointLines.delete(normalized);
+        }
+        return true;
+    },
+    bindLineNumberHandlers: () => {
+        if (ui.lineNumberHandlersBound) return;
+        const lineNumbers = document.getElementById('line-numbers');
+        if (!lineNumbers) return;
+        ui.lineNumberHandlersBound = true;
+
+        const applyFromPointer = (event) => {
+            const target = document.elementFromPoint(event.clientX, event.clientY);
+            const button = target && target.closest ? target.closest('.line-number-item') : null;
+            if (!button || !lineNumbers.contains(button)) return;
+            const line = Number(button.getAttribute('data-line') || 0);
+            if (!Number.isFinite(line) || line <= 0) return;
+            if (!ui.setBreakpointState(line, ui.breakpointDragValue)) return;
+            ui.refreshLineNumberBreakpointClasses();
+            ui.updateBreakpointsToggleControl();
+        };
+
+        const stopDrag = (event = null) => {
+            if (!ui.breakpointDragActive) return;
+            if (event && lineNumbers.releasePointerCapture && ui.breakpointDragPointerId !== null) {
+                try { lineNumbers.releasePointerCapture(ui.breakpointDragPointerId); } catch (error) { /* noop */ }
+            }
+            ui.breakpointDragActive = false;
+            ui.breakpointDragPointerId = null;
+            ui.resumeExecutionIfNoBreakpoints();
+        };
+
+        lineNumbers.addEventListener('pointerdown', (event) => {
+            const target = event.target;
+            const button = target && target.closest ? target.closest('.line-number-item') : null;
+            if (!button) return;
+            event.preventDefault();
+            const line = Number(button.getAttribute('data-line') || 0);
+            if (!Number.isFinite(line) || line <= 0) return;
+            if (event.shiftKey && ui.isEmptyEditorLine(line)) {
+                const wasEnabled = ui.softBreakpointLines.has(line);
+                ui.setSoftBreakpointState(line, !wasEnabled);
+                ui.refreshLineNumberBreakpointClasses();
+                ui.updateBreakpointsToggleControl();
+                ui.resumeExecutionIfNoBreakpoints();
+                return;
+            }
+            if (ui.isEmptyEditorLine(line)) return;
+            const wasEnabled = ui.breakpointLines.has(line);
+            ui.breakpointDragValue = !wasEnabled;
+            ui.breakpointDragActive = true;
+            ui.breakpointDragPointerId = event.pointerId;
+            if (lineNumbers.setPointerCapture) {
+                try { lineNumbers.setPointerCapture(event.pointerId); } catch (error) { /* noop */ }
+            }
+            ui.setBreakpointState(line, ui.breakpointDragValue);
+            ui.refreshLineNumberBreakpointClasses();
+            ui.updateBreakpointsToggleControl();
+        });
+
+        lineNumbers.addEventListener('pointermove', (event) => {
+            if (!ui.breakpointDragActive) return;
+            applyFromPointer(event);
+        });
+
+        lineNumbers.addEventListener('pointerup', (event) => stopDrag(event));
+        lineNumbers.addEventListener('pointercancel', (event) => stopDrag(event));
+        lineNumbers.addEventListener('lostpointercapture', () => stopDrag());
+    },
+    normalizeBreakpoints: (lineCount) => {
+        const count = Math.max(1, Number(lineCount) || 1);
+        const previousCount = Math.max(0, Number(ui.lineCount) || 0);
+        const previousSize = ui.breakpointLines.size;
+        const hadAllSelected = previousCount > 0 && previousSize >= previousCount;
+        const hadNoneSelected = previousSize === 0;
+        const next = new Set();
+        const nextSoft = new Set();
+        if (!ui.breakpointsInitialized || ui.pendingBreakpointReinit) {
+            if (ui.breakpointsDefaultAll) {
+                for (let line = 1; line <= count; line++) {
+                    if (!ui.isEmptyEditorLine(line)) next.add(line);
+                }
+            }
+            ui.breakpointLines = next;
+            ui.softBreakpointLines = nextSoft;
+            ui.lineCount = count;
+            ui.breakpointsInitialized = true;
+            ui.pendingBreakpointReinit = false;
+            return;
+        }
+        if (hadAllSelected) {
+            for (let line = 1; line <= count; line++) {
+                if (!ui.isEmptyEditorLine(line)) next.add(line);
+            }
+            ui.breakpointLines = next;
+            ui.softBreakpointLines = nextSoft;
+            ui.lineCount = count;
+            return;
+        }
+        for (const line of ui.breakpointLines) {
+            if (line >= 1 && line <= count && !ui.isEmptyEditorLine(line)) next.add(line);
+        }
+        for (const line of ui.softBreakpointLines) {
+            if (line >= 1 && line <= count && !next.has(line)) nextSoft.add(line);
+        }
+        if (!hadNoneSelected && count > previousCount) {
+            for (let line = previousCount + 1; line <= count; line++) next.add(line);
+        }
+        ui.breakpointLines = next;
+        ui.softBreakpointLines = nextSoft;
+        ui.lineCount = count;
+    },
+    refreshLineNumberBreakpointClasses: () => {
+        const lineNumbers = document.getElementById('line-numbers');
+        if (!lineNumbers) return;
+        const kindForLine = (line) => {
+            if (ui.breakpointLines.has(line)) return 'hard';
+            if (ui.softBreakpointLines.has(line)) return 'soft';
+            return 'none';
+        };
+        const items = lineNumbers.querySelectorAll('.line-number-item');
+        items.forEach((item) => {
+            const line = Number(item.getAttribute('data-line') || 0);
+            const kind = kindForLine(line);
+            const prevKind = kindForLine(line - 1);
+            const nextKind = kindForLine(line + 1);
+            item.classList.toggle('has-breakpoint', kind === 'hard');
+            item.classList.toggle('has-soft-breakpoint', kind === 'soft');
+            item.classList.remove('bp-single', 'bp-start', 'bp-mid', 'bp-end');
+            if (kind === 'none') return;
+            const samePrev = prevKind === kind;
+            const sameNext = nextKind === kind;
+            if (!samePrev && !sameNext) item.classList.add('bp-single');
+            else if (!samePrev && sameNext) item.classList.add('bp-start');
+            else if (samePrev && sameNext) item.classList.add('bp-mid');
+            else item.classList.add('bp-end');
+        });
+    },
+    updateBreakpointsToggleControl: () => {
+        const button = document.getElementById('btn-breakpoints-toggle');
+        if (!button) return;
+        const candidateCount = ui.countHardBreakpointCandidates();
+        const allSelected = candidateCount > 0 && ui.breakpointLines.size >= candidateCount && ui.softBreakpointLines.size === 0;
+        const partial = !allSelected && ui.hasAnyBreakpoints();
+        if (!ui.hasAnyBreakpoints()) ui.breakpointsDefaultAll = false;
+        else if (allSelected) ui.breakpointsDefaultAll = true;
+        button.setAttribute('title', allSelected ? 'Tout deselectionner' : 'Tout selectionner');
+        button.setAttribute('aria-pressed', allSelected ? 'true' : 'false');
+        button.setAttribute('aria-label', allSelected ? 'Tout deselectionner' : 'Tout selectionner');
+        button.classList.toggle('is-on', allSelected);
+        button.classList.toggle('is-partial', partial);
+    },
+    toggleAllBreakpoints: () => {
+        const count = Math.max(1, Number(ui.lineCount) || 1);
+        const candidateCount = ui.countHardBreakpointCandidates();
+        const allSelected = candidateCount > 0 && ui.breakpointLines.size >= candidateCount && ui.softBreakpointLines.size === 0;
+        if (allSelected) {
+            ui.breakpointLines.clear();
+            ui.softBreakpointLines.clear();
+            ui.breakpointsDefaultAll = false;
+        } else {
+            ui.breakpointLines = new Set();
+            ui.softBreakpointLines.clear();
+            for (let line = 1; line <= count; line++) {
+                if (!ui.isEmptyEditorLine(line)) ui.breakpointLines.add(line);
+            }
+            ui.breakpointsDefaultAll = true;
+        }
+        ui.refreshLineNumberBreakpointClasses();
+        ui.updateBreakpointsToggleControl();
+        ui.resumeExecutionIfNoBreakpoints();
+    },
+    toggleBreakpoint: (line) => {
+        const normalized = Number(line);
+        if (!Number.isFinite(normalized) || normalized <= 0) return;
+        if (ui.breakpointLines.has(normalized)) ui.setBreakpointState(normalized, false);
+        else ui.setBreakpointState(normalized, true);
+        ui.refreshLineNumberBreakpointClasses();
+        ui.updateBreakpointsToggleControl();
+        ui.resumeExecutionIfNoBreakpoints();
+    },
+    shouldPauseAtLine: (line) => {
+        const normalized = Number(line);
+        if (!Number.isFinite(normalized) || normalized <= 0) return false;
+        const prev = Number(ui.lastPauseProbeLine);
+        let pauseDecision = false;
+        if (Number.isFinite(prev) && prev >= 0 && ui.softBreakpointLines.size > 0 && prev !== normalized) {
+            const increasing = normalized > prev;
+            const candidates = Array.from(ui.softBreakpointLines)
+                .filter((softLine) => (
+                    increasing
+                        ? (softLine > prev && softLine < normalized)
+                        : (softLine < prev && softLine > normalized)
+                ))
+                .sort((a, b) => increasing ? (a - b) : (b - a));
+            if (candidates.length > 0) {
+                pauseDecision = { pause: true, pauseLine: candidates[0], soft: true };
+            }
+        }
+        if (pauseDecision) {
+            ui.lastPauseProbeLine = normalized;
+            return pauseDecision;
+        }
+        if (ui.breakpointLines.has(normalized)) {
+            ui.lastPauseProbeLine = normalized;
+            return true;
+        }
+        if (ui.softBreakpointLines.has(normalized)) {
+            ui.lastPauseProbeLine = normalized;
+            return { pause: true, pauseLine: normalized, soft: true };
+        }
+        ui.lastPauseProbeLine = normalized;
+        return pauseDecision;
+    },
+    resetPauseProbeLine: (line = 0) => {
+        const normalized = Number(line);
+        ui.lastPauseProbeLine = Number.isFinite(normalized) ? normalized : 0;
+    },
+    setPauseContext: (context = {}) => {
+        const line = Number(context && context.line);
+        ui.pauseContext = {
+            soft: Boolean(context && context.soft),
+            line: Number.isFinite(line) && line > 0 ? line : 0
+        };
+    },
+    consumeSoftPauseContext: () => {
+        const shouldResumeRealtime = Boolean(ui.pauseContext && ui.pauseContext.soft);
+        ui.pauseContext = { soft: false, line: 0 };
+        return shouldResumeRealtime;
     },
     updateDomRenderToggleControl: () => {
         const button = document.getElementById('btn-toggle-dom-render');
@@ -906,6 +1217,16 @@ export const ui = {
     toggleFlowLine: () => {
         ui.showFlowLine = !ui.showFlowLine;
         ui.updateFlowLineControl();
+    },
+    toggleDataFlow: () => {
+        ui.showDataFlow = !ui.showDataFlow;
+        ui.updateDataFlowControl();
+        if (!ui.showDataFlow) {
+            document.querySelectorAll('.flying-element').forEach((el) => el.remove());
+            document.querySelectorAll('.flying-dom-node').forEach((el) => el.remove());
+            document.querySelectorAll('.flow-link-line').forEach((el) => el.remove());
+            document.querySelectorAll('.flow-link-highlight').forEach((el) => el.classList.remove('flow-link-highlight'));
+        }
     },
     toggleMemoryTypes: () => {
         ui.showMemoryTypes = !ui.showMemoryTypes;
@@ -951,6 +1272,9 @@ export const ui = {
         if (loadPopup) loadPopup.classList.remove('visible');
         popup.classList.add('visible');
         ui.updateDisplayOptionsControls();
+        if (window.app && typeof window.app.updateOptionsPopupControls === 'function') {
+            window.app.updateOptionsPopupControls();
+        }
         window.requestAnimationFrame(ui.positionOptionsPopup);
         window.requestAnimationFrame(ui.positionOptionsPopup);
     },
@@ -1364,6 +1688,7 @@ export const ui = {
         else { panel.classList.add('open'); ui.isDrawerOpen = true; }
     },
     switchTab: (tabName) => {
+        if (ui.p5ModeEnabled && tabName === 'dom') tabName = 'memory';
         document.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
         const tabElement = document.getElementById(`tab-${tabName}`);
         if (tabElement) tabElement.classList.add('active');
@@ -1374,6 +1699,7 @@ export const ui = {
     },
     
     ensureDrawerOpen: (tabName) => {
+        if (ui.p5ModeEnabled && tabName === 'dom') tabName = 'memory';
         return new Promise(resolve => {
             if (ui.skipMode || ui.isStopping) {
                 const panel = document.getElementById('right-panel');
@@ -1476,6 +1802,8 @@ export const ui = {
     
     wait: (ms) => { 
         if (ui.isStopping) return Promise.resolve();
+        const appRunning = Boolean(window.app && window.app.isRunning);
+        if (appRunning && ui.shouldFastForwardExecution()) return Promise.resolve();
         if (ui.skipMode) return Promise.resolve(); 
         return new Promise(resolve => {
             ui.currentWaitResolver = resolve;
@@ -1496,6 +1824,8 @@ export const ui = {
         document.querySelectorAll('.flying-element').forEach(el => el.remove());
         document.querySelectorAll('.flying-dom-node').forEach(el => el.remove());
         document.querySelectorAll('.flow-link-line').forEach(el => el.remove());
+        document.querySelectorAll('.expr-flow-target').forEach(el => el.remove());
+        document.querySelectorAll('.expr-collapse-highlight').forEach(el => el.remove());
         document.querySelectorAll('.dom-group-highlight-box').forEach(el => el.remove());
         document.querySelectorAll('.dom-insert-target').forEach(el => el.remove());
         document.querySelectorAll('.flow-link-highlight').forEach(el => el.classList.remove('flow-link-highlight'));
@@ -1505,6 +1835,10 @@ export const ui = {
         document.querySelectorAll('.dom-insert-space').forEach(el => el.classList.remove('dom-insert-space'));
         document.querySelectorAll('.dom-remove-leave').forEach(el => el.classList.remove('dom-remove-leave'));
         document.querySelectorAll('.dom-attr-highlight').forEach(el => el.classList.remove('dom-attr-highlight'));
+        document.querySelectorAll('.line-number-item.is-current-line, .line-number-item.is-stack-frame').forEach((el) => {
+            el.classList.remove('is-current-line');
+            el.classList.remove('is-stack-frame');
+        });
     },
 
     renderCode: (tokens) => {
@@ -1545,6 +1879,7 @@ export const ui = {
         if (globalEditor && typeof globalEditor.refresh === 'function') {
             globalEditor.refresh();
         }
+        ui.resetVisuals();
         document.getElementById('highlight-layer').innerHTML = ''; 
         document.getElementById('memory-container').innerHTML = ''; 
         if (!keepConsole) document.getElementById('console-output').innerHTML = '';
@@ -1564,8 +1899,29 @@ export const ui = {
         }
         document.getElementById('code-wrapper').scrollTo(0, 0);
         ui.currentWaitResolver = null;
+        ui.lastPauseProbeLine = null;
+        ui.pauseContext = { soft: false, line: 0 };
     },
-    updateLineNumbers: (text) => { const lines = text.split('\n').length; document.getElementById('line-numbers').innerHTML = Array(lines).fill(0).map((_, i) => i + 1).join('<br>'); },
+    updateLineNumbers: (text) => {
+        const lines = Math.max(1, String(text || '').split('\n').length);
+        ui.bindLineNumberHandlers();
+        ui.normalizeBreakpoints(lines);
+        for (const line of Array.from(ui.breakpointLines)) {
+            if (ui.isEmptyEditorLine(line)) ui.breakpointLines.delete(line);
+        }
+        const lineNumbers = document.getElementById('line-numbers');
+        if (!lineNumbers) return;
+        const itemsHtml = Array(lines)
+            .fill(0)
+            .map((_, index) => {
+                const line = index + 1;
+                return `<button type="button" class="line-number-item" data-line="${line}">${line}</button>`;
+            })
+            .join('');
+        lineNumbers.innerHTML = itemsHtml;
+        ui.refreshLineNumberBreakpointClasses();
+        ui.updateBreakpointsToggleControl();
+    },
     syncScroll: () => { 
         const wrapper = document.getElementById('code-wrapper'); 
         const lineNums = document.getElementById('line-numbers');
@@ -1575,6 +1931,7 @@ export const ui = {
         // Mise à jour de l'état du bouton Play/Stop
         const btnRun = document.getElementById('btn-toggle-run');
         if (running) {
+            ui.lastPauseProbeLine = 0;
             btnRun.innerHTML = '<i data-lucide="square"></i>';
             btnRun.classList.add('btn-stop-mode');
             refreshIcons();
@@ -1590,7 +1947,17 @@ export const ui = {
         document.getElementById('code-input').style.pointerEvents = running ? 'none' : 'auto';
         document.getElementById('code-display').style.pointerEvents = running ? 'auto' : 'none';
         if(!running) document.getElementById('highlight-layer').innerHTML = ''; 
-        if(!running) ui.hideCodeValueTooltip();
+        if(!running) {
+            ui.hideCodeValueTooltip();
+            ui.pauseContext = { soft: false, line: 0 };
+            const lineNumbers = document.getElementById('line-numbers');
+            if (lineNumbers) {
+                lineNumbers.querySelectorAll('.line-number-item.is-current-line, .line-number-item.is-stack-frame').forEach((element) => {
+                    element.classList.remove('is-current-line');
+                    element.classList.remove('is-stack-frame');
+                });
+            }
+        }
     },
     setStepButtonState: (enabled) => { 
         document.getElementById('btn-next').disabled = !enabled; 
@@ -1609,6 +1976,75 @@ export const ui = {
         ui.domDocument = domDocument || null;
         if (domCss !== undefined) ui.domCss = String(domCss || '');
         ui.renderDomPanel();
+    },
+    getP5RuntimeFrame: () => {
+        const memoryPanel = document.getElementById('memory-render-panel');
+        if (memoryPanel) {
+            const frameInMemory = memoryPanel.querySelector('iframe.p5-runtime-frame');
+            if (frameInMemory) return frameInMemory;
+        }
+        const renderView = document.getElementById('dom-view-render');
+        if (!renderView) return null;
+        return renderView.querySelector('iframe.p5-runtime-frame');
+    },
+    renderP5RuntimeInContainer: (container) => {
+        if (!container) return;
+        const currentKey = String(ui.p5RuntimeKey || '');
+        const existingFrame = container.querySelector('iframe.p5-runtime-frame');
+        if (existingFrame && existingFrame.dataset.runtimeKey === currentKey) return;
+        const iframe = document.createElement('iframe');
+        iframe.className = 'dom-render-frame p5-runtime-frame';
+        iframe.setAttribute('title', 'Apercu p5.js');
+        iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+        iframe.dataset.runtimeKey = currentKey;
+        iframe.srcdoc = ui.p5RuntimeSrcdoc || '<!doctype html><html><body></body></html>';
+        container.innerHTML = '';
+        container.appendChild(iframe);
+    },
+    updateP5PanelsLayout: () => {
+        const tabDom = document.getElementById('tab-dom');
+        const viewMemory = document.getElementById('view-memory');
+        const memoryRenderPanel = document.getElementById('memory-render-panel');
+        if (tabDom) tabDom.style.display = ui.p5ModeEnabled ? 'none' : '';
+        if (viewMemory) viewMemory.classList.toggle('p5-split', Boolean(ui.p5ModeEnabled && ui.showDomRender));
+        if (!memoryRenderPanel) return;
+        if (ui.p5ModeEnabled && ui.showDomRender) {
+            memoryRenderPanel.classList.add('active');
+            ui.renderP5RuntimeInContainer(memoryRenderPanel);
+        } else {
+            memoryRenderPanel.classList.remove('active');
+            memoryRenderPanel.innerHTML = '';
+        }
+    },
+    setP5RuntimeMode: (enabled = false, srcdoc = '', runtimeKey = '') => {
+        ui.p5ModeEnabled = Boolean(enabled);
+        if (ui.p5ModeEnabled) {
+            ui.p5RuntimeSrcdoc = String(srcdoc || '');
+            ui.p5RuntimeKey = String(runtimeKey || '');
+        } else {
+            ui.p5RuntimeSrcdoc = '';
+            ui.p5RuntimeKey = '';
+        }
+        if (ui.p5ModeEnabled) {
+            const domTab = document.getElementById('tab-dom');
+            if (domTab && domTab.classList.contains('active')) ui.switchTab('memory');
+        }
+        ui.updateP5PanelsLayout();
+        ui.renderDomPanel();
+    },
+    postToDomRenderFrame: (payload) => {
+        const frame = ui.getP5RuntimeFrame() || (() => {
+            const renderView = document.getElementById('dom-view-render');
+            if (!renderView) return null;
+            return renderView.querySelector('iframe.dom-render-frame');
+        })();
+        if (!frame || !frame.contentWindow) return false;
+        try {
+            frame.contentWindow.postMessage(payload, '*');
+            return true;
+        } catch (error) {
+            return false;
+        }
     },
     updateDomInputValue: (domPath = '', nextValue = '') => {
         if (!ui.domDocument) return false;
@@ -1720,6 +2156,13 @@ export const ui = {
         });
     },
     setFlowHighlight: (elements, enabled) => {
+        if (!ui.showDataFlow || !ui.showFlowLine) {
+            (elements || []).forEach((element) => {
+                const flowElement = getFlowVisualElement(element);
+                if (flowElement) flowElement.classList.remove('flow-link-highlight');
+            });
+            return;
+        }
         (elements || []).forEach((element) => {
             const flowElement = getFlowVisualElement(element);
             if (!flowElement) return;
@@ -1729,12 +2172,30 @@ export const ui = {
     },
     animateWithFlowHighlight: async (sourceEl, destinationEl, flyCallback) => {
         if (!sourceEl || !destinationEl || typeof flyCallback !== 'function') return;
+        if (!ui.showDataFlow) {
+            const guide = createFlowGuideLine(sourceEl, destinationEl);
+            await ui.wait(40);
+            await flyCallback();
+            await ui.wait(40);
+            guide.stop();
+            return;
+        }
+        const guide = createFlowGuideLine(sourceEl, destinationEl);
         ui.setFlowHighlight([sourceEl, destinationEl], true);
         await ui.wait(180);
         await flyCallback();
         await ui.wait(160);
+        guide.stop();
         ui.setFlowHighlight([sourceEl, destinationEl], false);
         await ui.wait(120);
+    },
+    triggerMemoryFlash: (rowEl, type = 'write') => {
+        if (!rowEl || !type) return;
+        const className = `flash-${type}`;
+        rowEl.classList.remove(className);
+        // Force reflow so repeated writes re-trigger animation.
+        void rowEl.offsetWidth;
+        rowEl.classList.add(className);
     },
     animateDomReadToToken: async (node, tokenId, replacementValue = undefined, tokenGroupIds = [], property = '') => {
         if (ui.isStopping || !node || !tokenId) return;
@@ -1764,7 +2225,8 @@ export const ui = {
                 if (shouldFlyAttributeValue) {
                     await ui.flyHelper(replacementValue, sourceEl, tokenEl, false);
                 } else {
-                    await ui.flyDomNodeHelper(startEl, tokenEl, false);
+                    const flyValue = (replacementValue !== undefined) ? replacementValue : node;
+                    await ui.flyHelper(flyValue, startEl, tokenEl, false);
                 }
             });
             if (replacementValue !== undefined) ui.replaceTokenText(tokenId, replacementValue, true);
@@ -1805,6 +2267,7 @@ export const ui = {
     },
     flyDomNodeFromToken: async (node, startEl, endEl, delayStart = true) => {
         if (!node || !startEl || !endEl || ui.isStopping) return;
+        if (!ui.showDataFlow) return;
         const guide = createFlowGuideLine(startEl, endEl);
         try {
             endEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2212,6 +2675,13 @@ export const ui = {
 
         container.classList.toggle('show-render', ui.showDomRender);
         ui.updateDomRenderToggleControl();
+        ui.updateP5PanelsLayout();
+
+        if (ui.p5ModeEnabled) {
+            treeView.innerHTML = '<div class="dom-tree-empty">Mode p5.js actif. Le rendu est affiche sous la memoire.</div>';
+            renderView.innerHTML = '';
+            return;
+        }
 
         treeView.innerHTML = ui.domDocument ? buildDomTreeMarkup(ui.domDocument.body, 0) : '<div class="dom-tree-empty">Aucun document HTML charge.</div>';
         if (!ui.showDomRender) {
@@ -2353,11 +2823,37 @@ export const ui = {
         if(ui.isStopping) return;
         const layer = document.getElementById('highlight-layer'); layer.innerHTML = ''; 
         const lh = parseFloat(getComputedStyle(document.getElementById('code-display')).lineHeight);
+        const lineNumberContainer = document.getElementById('line-numbers');
+        if (lineNumberContainer) {
+            lineNumberContainer.querySelectorAll('.line-number-item.is-current-line, .line-number-item.is-stack-frame').forEach((element) => {
+                element.classList.remove('is-current-line');
+                element.classList.remove('is-stack-frame');
+            });
+        }
         if (lineNumbers.length > 0) {
             ui.scrollToLine(lineNumbers[lineNumbers.length - 1]);
         }
-        for(let i=0; i<lineNumbers.length - 1; i++) { const div = document.createElement('div'); div.className = 'exec-line-stack'; div.style.top = `${(lineNumbers[i] - 1) * lh + 10}px`; layer.appendChild(div); }
-        if (lineNumbers.length > 0) { const div = document.createElement('div'); div.className = 'exec-line'; div.style.top = `${(lineNumbers[lineNumbers.length - 1] - 1) * lh + 10}px`; layer.appendChild(div); }
+        for(let i=0; i<lineNumbers.length - 1; i++) {
+            const div = document.createElement('div');
+            div.className = 'exec-line-stack';
+            div.style.top = `${(lineNumbers[i] - 1) * lh + 10}px`;
+            layer.appendChild(div);
+            if (lineNumberContainer) {
+                const marker = lineNumberContainer.querySelector(`.line-number-item[data-line="${lineNumbers[i]}"]`);
+                if (marker) marker.classList.add('is-stack-frame');
+            }
+        }
+        if (lineNumbers.length > 0) {
+            const currentLine = lineNumbers[lineNumbers.length - 1];
+            const div = document.createElement('div');
+            div.className = 'exec-line';
+            div.style.top = `${(currentLine - 1) * lh + 10}px`;
+            layer.appendChild(div);
+            if (lineNumberContainer) {
+                const marker = lineNumberContainer.querySelector(`.line-number-item[data-line="${currentLine}"]`);
+                if (marker) marker.classList.add('is-current-line');
+            }
+        }
     },
 
     ensureVisible: (elementId) => { 
@@ -2431,13 +2927,19 @@ export const ui = {
         if(flashVarName && openDrawer) await ui.ensureDrawerOpen('memory');
         const container = document.getElementById('memory-container'); 
         let targetEl = null;
+        const visibleVarNamesForScope = (scope) => Object.keys(scope.variables).filter((name) => {
+            if (name === 'document') return false;
+            const entry = scope.variables[name];
+            if (!entry || entry.hidden === true) return false;
+            return entry.declared !== false;
+        });
         const visibleScopes = scopeStack.filter((scope) => {
-            const names = Object.keys(scope.variables).filter((name) => name !== 'document');
+            const names = visibleVarNamesForScope(scope);
             return names.length > 0 || scope.name === 'Global';
         });
         const arrayOwners = new Map();
         visibleScopes.forEach((scope) => {
-            Object.keys(scope.variables).filter((name) => name !== 'document').forEach((name) => {
+            visibleVarNamesForScope(scope).forEach((name) => {
                 const currentValue = scope.variables[name].value;
                 if (Array.isArray(currentValue)) {
                     const heapId = ui.getHeapId(currentValue);
@@ -2484,8 +2986,8 @@ export const ui = {
                 row.className = `memory-cell array-element ${metaHtml ? 'has-meta' : 'no-meta'}`;
                 row.innerHTML = `${metaHtml}<span class="mem-name">[${idx}]</span><span class="mem-val" id="${valueId}"${previewAttrs}>${wrapMemoryValueMarkup(valueMarkup)}</span>`;
                 if (hasDomPreview) ui.memoryDomPreviewRefs.set(valueId, item);
-                if (variableName === flashVarName && isTopLevel && flashIndex === idx) {
-                    if (flashType === 'insert' || flashType === 'delete') row.classList.add(`flash-${flashType}`);
+                if (variableName === flashVarName && isTopLevel && flashIndex === idx && ui.showFlowLine && !ui.showDataFlow) {
+                    if (flashType && flashType !== 'none') row.classList.add(`flash-${flashType}`);
                     targetEl = row;
                 }
                 groupDiv.appendChild(row);
@@ -2506,10 +3008,10 @@ export const ui = {
                 scopeDiv.appendChild(titleDiv); const varsContainer = document.createElement('div'); varsContainer.id = `scope-vars-${scope.id}`; scopeDiv.appendChild(varsContainer); container.appendChild(scopeDiv);
             }
             const varsContainer = document.getElementById(`scope-vars-${scope.id}`);
-            const activeVarNames = new Set(Object.keys(scope.variables).filter((name) => name !== 'document'));
+            const activeVarNames = new Set(visibleVarNamesForScope(scope));
             Array.from(varsContainer.children).forEach(child => { if (!activeVarNames.has(child.getAttribute('data-var-name'))) child.remove(); });
 
-            Object.keys(scope.variables).filter((name) => name !== 'document').forEach(name => {
+            visibleVarNamesForScope(scope).forEach(name => {
                 const v = scope.variables[name]; const groupId = `mem-group-${scope.id}-${name}`; let groupDiv = document.getElementById(groupId);
                 const heapId = Array.isArray(v.value) ? ui.getHeapId(v.value) : null;
                 const owner = heapId ? arrayOwners.get(heapId) : null;
@@ -2521,7 +3023,13 @@ export const ui = {
                     arrayOwner: isArrayRef ? owner : null
                 });
                 if (!groupDiv) { groupDiv = document.createElement('div'); groupDiv.id = groupId; groupDiv.className = 'memory-group'; groupDiv.setAttribute('data-var-name', name); groupDiv.classList.add('cell-entry'); varsContainer.appendChild(groupDiv); }
-                const shouldFlash = (name === flashVarName && flashType !== 'none' && flashIndex === null);
+                const shouldFlash = (
+                    name === flashVarName
+                    && flashType !== 'none'
+                    && flashIndex === null
+                    && ui.showFlowLine
+                    && !ui.showDataFlow
+                );
                 let valStr;
                 if (Array.isArray(v.value)) {
                     valStr = (owner && owner !== name) ? `ref ${owner}` : `length=${v.value.length}`;
@@ -2563,6 +3071,7 @@ export const ui = {
             });
         });
         if(targetEl) targetEl.scrollIntoView({ behavior: 'auto', block: 'center' }); 
+        if (ui.p5ModeEnabled) ui.updateP5PanelsLayout();
     },
 
     animateArrayPop: async (arrName, index) => { if (ui.skipMode) return; await ui.ensureDrawerOpen('memory'); const valSpan = document.getElementById(`mem-val-${arrName}-${index}`); if(valSpan && valSpan.parentElement) { valSpan.parentElement.classList.add('cell-remove'); await ui.wait(400); } },
@@ -2623,6 +3132,7 @@ export const ui = {
 
     flyHelper: async (value, startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;
+        if (!ui.showDataFlow) return;
         const startTarget = getFlowVisualElement(startEl);
         const endTarget = getFlowVisualElement(endEl);
         if (!startTarget || !endTarget) return;
@@ -2667,6 +3177,7 @@ export const ui = {
     },
     flyDomNodeHelper: async (startEl, endEl, delayStart = true) => {
         if (!startEl || !endEl || ui.isStopping) return;
+        if (!ui.showDataFlow) return;
         const startTarget = getFlowVisualElement(startEl);
         const endTarget = getFlowVisualElement(endEl);
         if (!startTarget || !endTarget) return;
@@ -2727,6 +3238,8 @@ export const ui = {
         if (!tokenEl || !memEl) { closePortal(); return; }
         const arrayRowEl = memEl.closest('.array-element');
         if (arrayRowEl) arrayRowEl.classList.add('array-cell-focus');
+        const memoryCell = memEl.closest('.memory-cell');
+        if (!ui.showDataFlow && ui.showFlowLine && memoryCell) ui.triggerMemoryFlash(memoryCell, 'write');
         const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || targetTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(tokenEl, memEl, async () => {
@@ -2752,6 +3265,8 @@ export const ui = {
         const firstTokenId = Array.isArray(targetTokenId) ? targetTokenId[0] : targetTokenId;
         const arrayRowEl = memEl.closest('.array-element');
         if (arrayRowEl) arrayRowEl.classList.add('array-cell-focus');
+        const memoryCell = memEl.closest('.memory-cell');
+        if (!ui.showDataFlow && ui.showFlowLine && memoryCell) ui.triggerMemoryFlash(memoryCell, 'read');
         const clearVarHighlight = ui.setVariableRelationHighlight(varName, varTokenId || firstTokenId, true, index, codeIndexTokenId);
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
@@ -2764,7 +3279,7 @@ export const ui = {
             closePortal();
         }
     },
-    visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(800); },
+    visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(120); },
     animateReadHeader: async (varName, value, targetTokenId) => {
         if (ui.skipMode || ui.isStopping) return;
         await ui.ensureDrawerOpen('memory');

@@ -7,6 +7,7 @@ import domSimpleHtml from '../../saves/05-dom-simple.html?raw';
 import variablesSimpleCode from '../../saves/06-variables-declaration-assignation.js?raw';
 import operationsSimpleCode from '../../saves/07-operations.js?raw';
 import conditionsSimpleCode from '../../saves/08-conditions-if-elseif-else-switch.js?raw';
+import p5DeltaTimeCode from '../../saves/12-p5-delta-time.js?raw';
 
 export const SCENARIOS = [
     { id: 'for-simple', title: 'Boucle for', kind: 'js', code: forSimpleCode.trim() },
@@ -17,4 +18,11 @@ export const SCENARIOS = [
     { id: 'variables-simple', title: 'Variables', kind: 'js', code: variablesSimpleCode.trim() },
     { id: 'operations-simple', title: 'Operations', kind: 'js', code: operationsSimpleCode.trim() },
     { id: 'conditions-simple', title: 'Conditions (if / switch)', kind: 'js', code: conditionsSimpleCode.trim() },
+    {
+        id: 'p5-delta-time',
+        title: 'p5.js - DeltaTime fixe',
+        kind: 'js',
+        code: p5DeltaTimeCode.trim(),
+        ui: { p5ModeEnabled: true }
+    },
 ];

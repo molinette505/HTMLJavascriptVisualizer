@@ -56,6 +56,7 @@ app.initScenarioLoader();
 ui.renderDomPanel();
 ui.switchTab('memory');
 ui.updateDisplayOptionsControls();
+app.updateOptionsPopupControls();
 
 const closeDrawerForEditorFocus = () => {
     if (window.innerWidth >= 800) return;
@@ -236,6 +237,18 @@ setAppHeight();
 window.addEventListener('message', (event) => {
     const data = event ? event.data : null;
     if (!data || typeof data !== 'object') return;
+    if (data.type === 'visualizer:p5-console') {
+        app.onP5ConsoleMessage(data.payload || {});
+        return;
+    }
+    if (data.type === 'visualizer:p5-error') {
+        app.onP5ErrorMessage(data.payload || {});
+        return;
+    }
+    if (data.type === 'visualizer:p5-ready') {
+        app.onP5ReadyMessage(data.payload || {});
+        return;
+    }
     if (data.type === 'visualizer:load-content') {
         const payload = Object.prototype.hasOwnProperty.call(data, 'payload') ? data.payload : data;
         app.loadExternalContent(payload);

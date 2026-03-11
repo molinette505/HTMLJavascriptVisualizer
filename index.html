@@ -18,6 +18,7 @@
             <div class="toolbar-separator" aria-hidden="true"></div>
             <div class="toolbar-group event-controls">
                 <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" title="Charger une sauvegarde"><i data-lucide="folder-open"></i></button>
+                <button id="btn-breakpoints-toggle" class="icon-btn icon-btn-toggle" onclick="ui.toggleAllBreakpoints()" title="Tout selectionner les points d'arret" aria-pressed="false"><i data-lucide="octagon-pause"></i></button>
                 <button id="btn-options" class="icon-btn" onclick="ui.toggleOptionsPopup()" title="Options"><i data-lucide="sliders-horizontal"></i></button>
             </div>
         </div>
@@ -45,18 +46,39 @@
         </div>
 
         <div id="options-popup" class="event-popup options-popup">
-            <span class="load-label">Options d'affichage</span>
-            <div id="option-row-flow-line" class="option-row">
-                <span>Ligne de liaison</span>
-                <button id="btn-toggle-flow-line" class="toggle-btn is-on" onclick="ui.toggleFlowLine()">ON</button>
+            <span class="load-label">Parametres</span>
+            <div class="options-section">
+                <div class="options-section-title">Animation</div>
+                <div id="option-row-flow-line" class="option-row">
+                    <span>Ligne de liaison</span>
+                    <button id="btn-toggle-flow-line" class="toggle-btn is-on" onclick="ui.toggleFlowLine()">ON</button>
+                </div>
+                <div class="option-row">
+                    <span>Animation des donnees</span>
+                    <button id="btn-toggle-data-flow" class="toggle-btn is-on" onclick="ui.toggleDataFlow()">ON</button>
+                </div>
             </div>
-            <div class="option-row">
-                <span>Types des variables</span>
-                <button id="btn-toggle-memory-types" class="toggle-btn" onclick="ui.toggleMemoryTypes()">OFF</button>
+            <div class="options-section">
+                <div class="options-section-title">Memoire</div>
+                <div class="option-row">
+                    <span>Types des variables</span>
+                    <button id="btn-toggle-memory-types" class="toggle-btn" onclick="ui.toggleMemoryTypes()">OFF</button>
+                </div>
+                <div class="option-row">
+                    <span>Adresses memoire</span>
+                    <button id="btn-toggle-memory-addresses" class="toggle-btn" onclick="ui.toggleMemoryAddresses()">OFF</button>
+                </div>
             </div>
-            <div class="option-row">
-                <span>Adresses mémoire</span>
-                <button id="btn-toggle-memory-addresses" class="toggle-btn" onclick="ui.toggleMemoryAddresses()">OFF</button>
+            <div class="options-section">
+                <div class="options-section-title">Mode p5.js</div>
+                <div class="option-row">
+                    <span>Activer p5.js</span>
+                    <button id="btn-toggle-p5-mode" class="toggle-btn" onclick="app.toggleP5Mode()">OFF</button>
+                </div>
+                <div class="option-row option-row-input">
+                    <span>Frequence draw (FPS)</span>
+                    <input id="input-p5-frame-rate" type="number" min="1" step="1" value="12" onchange="app.setP5FrameRateFromInput(this.value)">
+                </div>
             </div>
             <button class="btn-secondary" onclick="ui.toggleOptionsPopup(false)">Fermer</button>
         </div>
@@ -114,6 +136,7 @@
             </div>
             <div id="view-memory" class="drawer-content active">
                 <div id="memory-container"></div>
+                <div id="memory-render-panel"></div>
             </div>
             <div id="view-console" class="drawer-content">
                 <div class="console-box" id="console-output"></div>
