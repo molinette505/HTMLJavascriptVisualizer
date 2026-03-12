@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: application bootstrap and browser event wiring for desktop/mobile controls.
 import './styles/main.css';
 import { DEFAULT_CODE } from './core/config';
 import { ui, consoleUI } from './ui/ui';

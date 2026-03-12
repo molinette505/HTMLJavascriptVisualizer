@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: options popup visibility and positioning logic extracted from ui.ts.
 
 export function attachOptionsMethods(ui) {
     Object.assign(ui, {

@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: virtual DOM node classes and high-level document factory used by runtime simulation.
 
 import { findById, findBySelector, findParentOfNode } from './virtualDomQuery';
 import { serializeVirtualNode as serializeVirtualNodeImpl, serializeVirtualDocument as serializeVirtualDocumentImpl } from './virtualDomSerialize';
@@ -52,6 +53,7 @@ const coerceToNode = (node) => {
     return new VirtualTextNode(String(node));
 };
 
+// Adapter wrapper keeps node construction in this file while parser logic lives in virtualDomParse.ts.
 function parseHtmlFragment(html) {
     return parseHtmlFragmentWithAdapters(html, {
         createElementNode: (tagName, attributes = {}) => new VirtualElementNode(tagName, attributes),
@@ -61,6 +63,7 @@ function parseHtmlFragment(html) {
     });
 }
 
+// Always normalize parsed content to a VirtualElementNode('body') root.
 function parseHtmlDocument(html) {
     return parseHtmlDocumentWithAdapters(html, {
         createElementNode: (tagName, attributes = {}) => new VirtualElementNode(tagName, attributes),

@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: central runtime defaults and display formatting helpers shared by interpreter and UI.
 import { isVirtualDomValue } from './virtualDom';
 
 export const DEFAULT_CODE = `// Démo Événements

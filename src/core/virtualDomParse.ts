@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: HTML-to-virtual-node parsing helpers with adapters for node construction.
 
 const parseAttributes = (rawAttributes) => {
     const attributes = {};
@@ -14,6 +15,7 @@ const parseAttributes = (rawAttributes) => {
     return attributes;
 };
 
+// Convert browser DOM nodes into project-specific virtual node instances.
 const convertNativeNode = (nativeNode, deps) => {
     if (!nativeNode) return null;
     if (nativeNode.nodeType === 3) return deps.createTextNode(nativeNode.textContent || '');
@@ -31,6 +33,7 @@ const convertNativeNode = (nativeNode, deps) => {
     return element;
 };
 
+// Lightweight parser fallback used when DOMParser is unavailable (tests/non-browser envs).
 const parseHtmlFragmentFallback = (html, deps) => {
     const source = String(html || '');
     if (!source.trim()) return [];
@@ -80,6 +83,7 @@ const parseHtmlFragmentFallback = (html, deps) => {
     return root.children;
 };
 
+// Parse an HTML fragment and create nodes through adapters supplied by virtualDom.ts.
 export const parseHtmlFragmentWithAdapters = (html, deps) => {
     const source = String(html || '');
     if (typeof DOMParser !== 'undefined') {
@@ -96,6 +100,7 @@ export const parseHtmlFragmentWithAdapters = (html, deps) => {
     return parseHtmlFragmentFallback(source, deps);
 };
 
+// Parse a full HTML document and normalize output to a virtual <body> element.
 export const parseHtmlDocumentWithAdapters = (html, deps) => {
     const source = String(html || '');
     if (typeof DOMParser !== 'undefined') {

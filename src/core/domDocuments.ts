@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: curated HTML fixtures that can be loaded into the virtual DOM playground.
 import boutiqueHtml from '../../dom-saves/01-boutique.html?raw';
 import formulaireHtml from '../../dom-saves/02-formulaire.html?raw';
 import listeCoursesHtml from '../../dom-saves/03-dom-liste-courses.html?raw';

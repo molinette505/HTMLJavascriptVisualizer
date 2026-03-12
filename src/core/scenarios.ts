@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: predefined lesson scenarios shown in the scenario loader.
 import forSimpleCode from '../../saves/01-for-simple.js?raw';
 import whileSimpleCode from '../../saves/02-while-simple.js?raw';
 import functionSimpleCode from '../../saves/03-function-simple.js?raw';

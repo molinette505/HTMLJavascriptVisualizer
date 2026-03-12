@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: statement-level executor (declarations, loops, control flow) for the interpreter.
 import { formatValue } from './config';
 import {
     Identifier,
@@ -24,10 +25,13 @@ import {
 import { Scope } from './scope';
 import { isVirtualDomValue } from './virtualDom';
 
+// Execute one statement AST node and keep interpreter + UI state in sync.
+// This layer owns side effects (scope mutations, memory refresh, and visual pauses).
 export async function executeNode(interpreter, node) {
     if (interpreter.shouldStop) return;
     if (node instanceof BlockStmt) { const blockScope = new Scope("Block", interpreter.currentScope, interpreter.currentScope); interpreter.scopeStack.push(blockScope); const prevScope = interpreter.currentScope; interpreter.currentScope = blockScope; let result; try { result = await interpreter.executeBlock(node.body); } finally { interpreter.currentScope = prevScope; interpreter.scopeStack.pop(); await interpreter.ui.updateMemory(interpreter.scopeStack); } return result; }
     if (node instanceof MultiVarDecl) { for (const decl of node.decls) { await interpreter.execute(decl); } return; }
+    // Declaration flow is split from assignment flow to preserve hoisting semantics.
     if (node instanceof VarDecl) {
         await interpreter.pause(node.line);
         const hasOwnBinding = Object.prototype.hasOwnProperty.call(interpreter.currentScope.variables, node.name);
@@ -86,6 +90,7 @@ export async function executeNode(interpreter, node) {
             await interpreter.ui.maybePauseAfterMicroStep();
         }
     }
+    // Assignment supports identifiers, arrays, and virtual DOM member writes.
     else if (node instanceof Assignment) {
         await interpreter.pause(node.line);
         let val;
@@ -177,6 +182,7 @@ export async function executeNode(interpreter, node) {
             }
         }
     }
+    // Call expressions used as standalone statements keep side effects but hide return values.
     else if (node instanceof CallExpr) {
         await interpreter.pause(node.line);
         node.__suppressResultVisual = true;
@@ -191,6 +197,7 @@ export async function executeNode(interpreter, node) {
     }
     else if (node instanceof UpdateExpr) { await interpreter.pause(node.line); await interpreter.evaluate(node); }
     else if (node instanceof IfStmt) { await interpreter.pause(node.line); const test = await interpreter.evaluate(node.test); interpreter.ui.lockTokens(node.test.domIds||[]); let res; try { if (test) { if (node.consequent instanceof BlockStmt) res = await interpreter.executeBlock(node.consequent.body); else res = await interpreter.execute(node.consequent); } else if (node.alternate) { if (node.alternate instanceof BlockStmt) res = await interpreter.executeBlock(node.alternate.body); else res = await interpreter.execute(node.alternate); } } finally { interpreter.ui.unlockTokens(node.test.domIds||[]); } if (res) return res; }
+    // Loop branches push dedicated scopes so each iteration can be visualized cleanly.
     else if (node instanceof WhileStmt) {
         while(true) {
             await interpreter.pause(node.line);
@@ -247,6 +254,7 @@ export async function executeNode(interpreter, node) {
             interpreter.ui.unlockTokens(node.test.domIds||[]);
         } while(true);
     }
+    // `for` executes init/test/update with pause-aware behavior to keep stepping intuitive.
     else if (node instanceof ForStmt) {
         const loopScope = new Scope("Loop", interpreter.currentScope, interpreter.currentScope);
         interpreter.scopeStack.push(loopScope);

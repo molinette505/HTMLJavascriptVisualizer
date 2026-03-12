@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: memory panel rendering, snapshots, and cell-level highlight behavior.
 
 export const attachMemoryMethods = (ui, deps = {}) => {
     const {

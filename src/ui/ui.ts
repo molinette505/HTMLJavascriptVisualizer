@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: primary UI state container that composes specialized UI method modules.
 import { TokenType } from '../core/language';
 import { formatValue } from '../core/config';
 import { isVirtualDomValue } from '../core/virtualDom';
@@ -560,6 +561,7 @@ export const ui = {
 
 };
 
+// Compose specialized UI behaviors into one shared `ui` state object.
 attachExecutionControls(ui);
 attachOptionsMethods(ui);
 attachLayoutMethods(ui);

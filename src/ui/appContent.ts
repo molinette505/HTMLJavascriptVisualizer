@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: content normalization helpers for JS/HTML/CSS buffers and external payloads.
 
 export const EDITOR_MODES = ['html', 'css', 'js'];
 

@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: virtual DOM serialization helpers for plain and pretty HTML output.
 
 const escapeHtmlText = (value) => String(value)
     .replace(/&/g, '&amp;')

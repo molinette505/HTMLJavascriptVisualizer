@@ -1,4 +1,6 @@
 // @ts-nocheck
+// File purpose: language front-end (lexer/parser/AST classes) consumed by the interpreter.
+// Note: this file is intentionally compact/minified-style; keep parser/token changes well-tested.
 export const TokenType={KEYWORD:'KEYWORD',IDENTIFIER:'IDENTIFIER',NUMBER:'NUMBER',STRING:'STRING',OPERATOR:'OPERATOR',PUNCTUATION:'PUNCTUATION',COMMENT:'COMMENT',EOF:'EOF',BOOLEAN:'BOOLEAN'};
 export const KEYWORDS=['let','const','var','if','else','while','for','do','function','return','switch','case','break','default','new'];
 export class Token{constructor(type,value,line,id=null){this.type=type;this.value=value;this.line=line;this.id=id||`tok-${Math.random().toString(36).substr(2,9)}`;}}

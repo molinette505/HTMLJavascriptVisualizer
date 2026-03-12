@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: consistent runtime value formatting for memory cells and code previews.
 import { formatValue } from '../core/config';
 import { isVirtualDomValue } from '../core/virtualDom';
 import { escapeHtml } from './markup';

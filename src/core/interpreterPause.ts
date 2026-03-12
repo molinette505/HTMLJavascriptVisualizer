@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: stepping and pause-control policy used by animated execution modes.
 
 export function nextInterpreterStep(interpreter) {
     if (interpreter.resolveNext) {
@@ -55,6 +56,7 @@ export function shouldFastForwardInterpreter(interpreter) {
     }
 }
 
+// Central pause gate shared by manual stepping and breakpoint-driven execution.
 export async function pauseInterpreter(interpreter, line) {
     if (interpreter.shouldStop) throw new Error('STOP');
     if (interpreter.ui && interpreter.ui.stepMode === 'micro' && interpreter.ui.microSkipToNextInstruction) {

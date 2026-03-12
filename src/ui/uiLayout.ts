@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: drawer/tab/mobile layout controls extracted from ui.ts.
 
 export function attachLayoutMethods(ui) {
     Object.assign(ui, {

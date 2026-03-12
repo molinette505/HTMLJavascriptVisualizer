@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: expression-level evaluator (reads, calls, operators) with visual side effects.
 import {
     Identifier,
     CallExpr,
@@ -29,6 +30,8 @@ import {
 import { Scope } from './scope';
 import { isVirtualDomValue } from './virtualDom';
 
+// Evaluate one expression AST node and return the computed runtime value.
+// Unlike executeNode, this function may still trigger animations for readability.
 export async function evaluateNode(interpreter, node, options = {}) {
     if (node instanceof Literal) {
         if (node.isTemplate) {
@@ -43,6 +46,7 @@ export async function evaluateNode(interpreter, node, options = {}) {
     if (node instanceof ArrayLiteral) { const elements = []; for (const el of node.elements) { elements.push(await interpreter.evaluate(el)); } return elements; }
     if (node instanceof NewExpr) { if (node.callee instanceof Identifier && node.callee.name === 'Array') { const args = []; for(const arg of node.args) args.push(await interpreter.evaluate(arg)); if(args.length === 1 && typeof args[0] === 'number') { return new Array(args[0]).fill(undefined); } return new Array(...args); } }
     if (node instanceof ArgumentsNode) { let result; for(const arg of node.args) { result = await interpreter.evaluate(arg); } return result; }
+    // Identifier reads can resolve to both variable bindings and hoisted function refs.
     if (node instanceof Identifier) {
         let variable;
         try {
@@ -77,6 +81,7 @@ export async function evaluateNode(interpreter, node, options = {}) {
         });
         return variable.value;
     }
+    // Member access supports arrays, strings, virtual DOM nodes, and generic objects.
     if (node instanceof MemberExpr) {
         let obj;
         if (node.object instanceof Identifier) {
@@ -178,13 +183,16 @@ export async function evaluateNode(interpreter, node, options = {}) {
     }
     if (node instanceof TernaryExpr) { const condition = await interpreter.evaluate(node.test); const result = condition ? await interpreter.evaluate(node.consequent) : await interpreter.evaluate(node.alternate); await interpreter.ui.animateOperationCollapse(node.domIds, result); await interpreter.ui.wait(800); return result; }
     if (node instanceof BinaryExpr) { const left = await interpreter.evaluate(node.left); if (node.op === '&&' && !left) { if (node.right instanceof Identifier) { try { const val = interpreter.currentScope.get(node.right.name).value; await interpreter.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await interpreter.ui.animateOperationCollapse(node.domIds, false); await interpreter.ui.wait(800); return false; } if (node.op === '||' && left) { if (node.right instanceof Identifier) { try { const val = interpreter.currentScope.get(node.right.name).value; await interpreter.ui.visualizeIdentifier(node.right.name, val, node.right.domIds); } catch(e) { } } await interpreter.ui.animateOperationCollapse(node.domIds, true); await interpreter.ui.wait(800); return true; } const right = await interpreter.evaluate(node.right); let result; switch(node.op) { case '+': result = left + right; break; case '-': result = left - right; break; case '*': result = left * right; break; case '/': result = left / right; break; case '%': result = left % right; break; case '>': result = left > right; break; case '<': result = left < right; break; case '>=': result = left >= right; break; case '<=': result = left <= right; break; case '==': result = left == right; break; case '!=': result = left != right; break; case '===': result = left === right; break; case '!==': result = left !== right; break; case '&&': result = left && right; break; case '||': result = left || right; break; } await interpreter.ui.animateOperationCollapse(node.domIds, result); await interpreter.ui.wait(800); return result; }
+    // Call handling is the most complex path: native hooks, built-ins, methods, and user functions.
     if (node instanceof CallExpr) {
         const suppressResultVisual = Boolean(options && options.suppressResultVisual) || Boolean(node.__suppressResultVisual);
+        // Small helper: collapse an expression into a final visual value token.
         const showCollapseResult = async (result, waitMs = 800) => {
             if (suppressResultVisual) return;
             await interpreter.ui.animateOperationCollapse(node.domIds, result);
             if (waitMs > 0) await interpreter.ui.wait(waitMs);
         };
+        // Small helper: replace a full call expression with its return value in-place.
         const showCallResultReplacement = async (result, waitMs = 800) => {
             if (suppressResultVisual) return;
             const callTargetTokenId = interpreter.getCallReplacementTokenId(node);

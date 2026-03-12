@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: runtime error normalization plus shared token/DOM lookup helpers.
 
 export function formatRuntimeError(interpreter, error) {
     let name = (error && error.name) ? String(error.name) : 'Error';

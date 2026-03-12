@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: top-level interpreter orchestrator that wires execution, events, and delegated runtime modules.
 import { Lexer, Parser, Identifier, CallExpr, MultiVarDecl, VarDecl, FunctionDecl } from './language';
 import { Scope } from './scope';
 import { createVirtualDocument } from './virtualDom';

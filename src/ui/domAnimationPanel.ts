@@ -1,5 +1,7 @@
 // @ts-nocheck
+// File purpose: virtual DOM panel rendering and DOM-specific animation primitives attached to ui.
 
+// Attach DOM panel rendering + DOM mutation animations to the main ui object.
 export const attachDomMethods = (ui, deps = {}) => {
     const {
         resolveVirtualDomNodeByPath,
@@ -51,6 +53,7 @@ export const attachDomMethods = (ui, deps = {}) => {
         const rect = element.getBoundingClientRect();
         return rect.width > 1 && rect.height > 1;
     }),
+    // Build a temporary overlay target that represents a multi-token expression area.
     createCodeExpressionTarget: (ids) => {
         const elements = ui.getVisibleCodeElements(ids);
         if (elements.length === 0) return { target: null, elements: [], clear: () => {} };
@@ -93,6 +96,7 @@ export const attachDomMethods = (ui, deps = {}) => {
         walk(node);
         return elements;
     },
+    // Draw a single highlight box around a subtree to reduce visual noise during mutations.
     createDomGroupHighlight: (elements) => {
         if (!elements || elements.length === 0) return { box: null, clear: () => {} };
         const rects = elements.map((element) => element.getBoundingClientRect());

@@ -1,3 +1,4 @@
+// File purpose: behavioral regression coverage for interpreter execution and runtime hooks.
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   Lexer,

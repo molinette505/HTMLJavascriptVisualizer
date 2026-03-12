@@ -1,6 +1,8 @@
 // @ts-nocheck
+// File purpose: breakpoint, pause-probe, and stepping-control methods attached to ui.
 import { refreshIcons } from './icons';
 
+// Attach stepping and breakpoint behavior used by interpreter pause decisions.
 export const attachExecutionControls = (ui) => {
     Object.assign(ui, {
     hasAnyBreakpoints: () => (ui.breakpointLines.size + ui.softBreakpointLines.size) > 0,
@@ -69,6 +71,7 @@ export const attachExecutionControls = (ui) => {
         }
         return true;
     },
+    // Pointer drag lets users paint breakpoints quickly across many lines.
     bindLineNumberHandlers: () => {
         if (ui.lineNumberHandlersBound) return;
         const lineNumbers = document.getElementById('line-numbers');
@@ -245,6 +248,7 @@ export const attachExecutionControls = (ui) => {
         ui.updateBreakpointsToggleControl();
         ui.resumeExecutionIfNoBreakpoints();
     },
+    // Returns a rich pause decision object consumed by interpreter.pause().
     shouldPauseAtLine: (line) => {
         const normalized = Number(line);
         if (!Number.isFinite(normalized) || normalized <= 0) return false;

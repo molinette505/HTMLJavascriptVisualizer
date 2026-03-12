@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: token/value animation routines for reads, writes, and operation collapses.
 
 export const attachTokenAnimationMethods = (ui, deps = {}) => {
     const {

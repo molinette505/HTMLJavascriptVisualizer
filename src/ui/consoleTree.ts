@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: structured console value rendering with expandable object/array trees.
 import { formatValue } from '../core/config';
 import { isVirtualDomValue } from '../core/virtualDom';
 

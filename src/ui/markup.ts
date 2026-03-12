@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: safe HTML escaping and highlighted markup builders for code views.
 import { TokenType, Lexer } from '../core/language';
 
 export const escapeHtml = (value) => String(value)

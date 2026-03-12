@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: optional p5 runtime bridge and iframe command coordination.
 import { createVirtualDocument } from '../core/virtualDom';
 
 const applyToggleButtonState = (button, isOn) => {

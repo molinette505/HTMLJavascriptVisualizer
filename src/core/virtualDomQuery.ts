@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: selector parsing and traversal utilities that emulate querySelector/getElementById behavior.
 
 const normalizeSelector = (selector) => String(selector || '').trim();
 
@@ -198,6 +199,7 @@ const parseCompoundSelector = (compoundText) => {
     return parsed;
 };
 
+// Convert one selector group into ordered compound steps + combinators.
 const parseSelectorChain = (selector) => {
     const source = normalizeSelector(selector);
     if (!source) return [];
@@ -297,6 +299,7 @@ export const findById = (root, id) => {
     return found;
 };
 
+// Parent lookup is shared by sibling combinators and pseudo selectors.
 export const findParentOfNode = (root, node) => {
     if (!root || root.__domType !== 'element' || !node) return null;
     for (const child of root.children || []) {
@@ -345,6 +348,7 @@ const getAttr = (element, name) => {
     return undefined;
 };
 
+// Evaluate CSS-like pseudo selectors against the current virtual node.
 const matchesPseudoSelector = (root, element, pseudo) => {
     const name = String((pseudo && pseudo.name) || '').toLowerCase();
     const arg = pseudo ? pseudo.arg : null;
@@ -410,6 +414,7 @@ const matchesCompound = (root, element, compound) => {
     return true;
 };
 
+// Walk selector steps from right-to-left, mirroring browser selector engines.
 const matchesSelectorSteps = (root, candidate, steps) => {
     if (!steps || steps.length === 0) return false;
     let current = candidate;

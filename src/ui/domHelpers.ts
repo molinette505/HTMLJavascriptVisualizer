@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: reusable DOM tree/preview helper functions shared by UI modules.
 import { formatValue } from '../core/config';
 import { escapeHtml } from './markup';
 

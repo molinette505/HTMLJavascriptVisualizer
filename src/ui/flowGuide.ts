@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: visual flow-line geometry helpers used by read/write animations.
 
 export const getFlowVisualElement = (element) => {
     if (!element || !element.classList) return element;

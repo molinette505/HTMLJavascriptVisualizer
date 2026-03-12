@@ -1,3 +1,4 @@
+/* File purpose: global visual system for layout, controls, and execution/memory animations. */
         :root {
             --bg-dark: #0f172a;
             --bg-panel: #1e293b;

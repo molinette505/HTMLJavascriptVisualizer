@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: app controller for run lifecycle, scenario loading, and editor mode coordination.
 import { Interpreter } from '../core/interpreter';
 import { SCENARIOS } from '../core/scenarios';
 import { createVirtualDocument } from '../core/virtualDom';

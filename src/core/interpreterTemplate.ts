@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: template-literal parsing and incremental interpolation rendering logic.
 import { Lexer, Parser, TokenType } from './language';
 
 function templateTokenClass(type) {

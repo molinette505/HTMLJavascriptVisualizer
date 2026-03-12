@@ -1,4 +1,6 @@
 // @ts-nocheck
+// File purpose: lexical scope model for variable declaration, lookup, and assignment rules.
+// Scope stores runtime bindings plus metadata needed by memory visualization.
 export class Scope {
     constructor(name, parent = null, visualParent = null) {
         this.name = name; this.parent = parent; this.visualParent = visualParent || parent; this.variables = {};

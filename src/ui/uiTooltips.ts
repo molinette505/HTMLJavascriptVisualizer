@@ -1,5 +1,7 @@
 // @ts-nocheck
+// File purpose: code/memory tooltip and portal behavior extracted from ui.ts.
 
+// Attach tooltip/portal behavior so ui.ts can stay focused on orchestration.
 export function attachTooltipMethods(ui, deps) {
     const {
         getCodePreviewTypeLabel,
@@ -14,6 +16,7 @@ export function attachTooltipMethods(ui, deps) {
     } = deps;
 
     Object.assign(ui, {
+        // Bind pointer/hover handlers once and keep tooltip state centralized on `ui`.
         initCodeValueTooltip: () => {
             if (ui.codeValueTooltipBound) return;
             const display = document.getElementById('code-display');
@@ -229,6 +232,7 @@ export function attachTooltipMethods(ui, deps) {
             window.requestAnimationFrame(positionPanel);
             return panel;
         },
+        // Render array aliases in a side portal when the original value is outside viewport.
         openMemoryArrayPortal: (aliasVarName, ownerVarName, targetIndex = null) => {
             ui.hideMemoryArrayPortal();
             const container = document.getElementById('memory-container');
@@ -321,6 +325,7 @@ export function attachTooltipMethods(ui, deps) {
             }
             return { memEl, closePortal };
         },
+        // Memory DOM previews share one floating tooltip to avoid expensive re-renders.
         initMemoryDomTooltip: () => {
             if (ui.memoryDomTooltipBound) return;
             const container = document.getElementById('memory-container');

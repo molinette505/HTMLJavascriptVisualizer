@@ -1,4 +1,5 @@
 // @ts-nocheck
+// File purpose: editor interactions (history, shortcuts, token rendering triggers).
 import { DEFAULT_CODE } from '../core/config';
 import { Lexer } from '../core/language';
 import { ui } from './ui';

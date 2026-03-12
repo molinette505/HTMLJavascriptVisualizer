@@ -1,7 +1,9 @@
 // @ts-nocheck
+// File purpose: DOM event propagation and inline/listener invocation helpers used by the interpreter.
 import { Lexer, Parser, BlockStmt } from './language';
 import { Scope } from './scope';
 
+// Depth-first parent lookup used for event bubbling simulation.
 export function findDomParent(interpreter, rootNode, targetNode) {
     if (!rootNode || !targetNode || !rootNode.children || rootNode.children.length === 0) return null;
     for (const child of rootNode.children) {
@@ -148,6 +150,7 @@ export async function executeInlineDomHandler(interpreter, sourceCode, eventPayl
     }
 }
 
+// Replays browser-like click propagation across virtual DOM ancestors.
 export async function invokeDomClick(interpreter, path = '') {
     if (interpreter.shouldStop) return;
     if (interpreter.isHandlingEvent) return;
