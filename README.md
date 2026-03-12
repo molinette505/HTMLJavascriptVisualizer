@@ -98,6 +98,9 @@ flowchart LR
 - `src/ui/domAnimationPanel.ts`: DOM panel rendering and DOM mutation/read/write animation methods attached to `ui`.
 - `src/ui/memoryPanel.ts`: memory snapshot rendering and array/memory highlight methods attached to `ui`.
 - `src/ui/tokenAnimations.ts`: token/value flow animations and token replacement lifecycle methods attached to `ui`.
+- `src/ui/uiOptions.ts`: options popup open/close/position behavior attached to `ui`.
+- `src/ui/uiTooltips.ts`: code/memory tooltip and detached portal behaviors attached to `ui`.
+- `src/ui/uiLayout.ts`: drawer/tab/mobile-tools layout methods attached to `ui`.
 
 ### Interpreter Module Split (recent refactor)
 
