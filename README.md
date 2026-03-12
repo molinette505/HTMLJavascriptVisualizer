@@ -77,6 +77,9 @@ flowchart LR
 - `src/core/interpreterEvaluate.ts`: expression-level AST evaluation (identifiers, members, calls, operators, function invocation flow).
 - `src/core/scope.ts`: lexical scope model.
 - `src/core/virtualDom.ts`: in-memory DOM model and DOM-like operations.
+- `src/core/virtualDomParse.ts`: HTML-to-virtual-DOM parsing helpers with adapter hooks.
+- `src/core/virtualDomQuery.ts`: selector parsing/matching and DOM traversal helpers (`querySelector`, `getElementById`, parent lookup).
+- `src/core/virtualDomSerialize.ts`: virtual DOM to HTML string serialization helpers.
 - `src/core/scenarios.ts`: predefined learning/demo scenarios.
 - `src/ui/app.ts`: high-level app controller (editor modes, run lifecycle, scenarios, embed options, p5 mode).
 - `src/ui/appContent.ts`: editor-mode and external-content normalization/parsing helpers.
