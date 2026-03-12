@@ -245,8 +245,10 @@ export const attachTokenAnimationMethods = (ui, deps = {}) => {
         await ui.maybePauseAfterMicroStep();
     },
     visualizeIdentifier: async (varName, value, domIds) => { if (!domIds || domIds.length === 0 || ui.isStopping) return; await ui.animateRead(varName, value, domIds[0]); ui.replaceTokenText(domIds[0], value, true); for(let i=1; i<domIds.length; i++) { const el = document.getElementById(domIds[i]); if(el) { if(!ui.modifiedTokens.has(domIds[i])) ui.modifiedTokens.set(domIds[i], {original: el.innerText, transient: true}); el.style.display = 'none'; } } await ui.wait(120); },
-    animateReadHeader: async (varName, value, targetTokenId) => {
+    animateReadHeader: async (varName, value, targetTokenId, options = null) => {
         if (ui.skipMode || ui.isStopping) return;
+        const suppressMicroPause = Boolean(options && options.suppressMicroPause);
+        const onArrive = options && typeof options.onArrive === 'function' ? options.onArrive : null;
         await ui.ensureDrawerOpen('memory');
         await ui.wait(220);
         const memId = `mem-header-${varName}`;
@@ -262,12 +264,13 @@ export const attachTokenAnimationMethods = (ui, deps = {}) => {
         try {
             await ui.animateWithFlowHighlight(memEl, tokenEl, async () => {
                 await ui.flyHelper(value, memEl, tokenEl, false);
+                if (onArrive) await onArrive();
             });
         } finally {
             expressionTarget.clear();
             clearVarHighlight();
         }
-        await ui.maybePauseAfterMicroStep();
+        if (!suppressMicroPause) await ui.maybePauseAfterMicroStep();
     },
     animateReturnHeader: async (varName, value, targetTokenId) => { await ui.animateReadHeader(varName, value, targetTokenId); },
     animateSpliceRead: async (varName, values, targetTokenId, startIndex) => {

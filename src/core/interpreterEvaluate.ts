@@ -94,9 +94,16 @@ export async function evaluateNode(interpreter, node, options = {}) {
         const prop = node.computed ? await interpreter.evaluate(node.property) : node.property.value;
         if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) {
             interpreter.setMemberPropertyHoverSnapshot(node, obj.length);
-            await interpreter.ui.animateReadHeader(node.object.name, obj.length, node.domIds);
-            await interpreter.ui.animateOperationCollapse(node.domIds, obj.length);
-            await interpreter.ui.wait(800);
+            await interpreter.ui.animateReadHeader(node.object.name, obj.length, node.domIds, {
+                onArrive: async () => {
+                    const replacementTargetId = interpreter.getExpressionDisplayTokenId(node)
+                        || (node.domIds && node.domIds.length > 0 ? node.domIds[0] : null);
+                    if (!replacementTargetId) return;
+                    interpreter.ui.replaceTokenText(replacementTargetId, obj.length, true);
+                    interpreter.collapseExpressionTokens(node.domIds, replacementTargetId);
+                    await interpreter.ui.wait(120);
+                }
+            });
             return obj.length;
         }
         if (Array.isArray(obj) && node.object instanceof Identifier) {
@@ -121,9 +128,16 @@ export async function evaluateNode(interpreter, node, options = {}) {
         if (typeof obj === 'string' && prop === 'length' && node.object instanceof Identifier) {
             const len = obj.length;
             interpreter.setMemberPropertyHoverSnapshot(node, len);
-            await interpreter.ui.animateRead(node.object.name, len, node.domIds);
-            await interpreter.ui.animateOperationCollapse(node.domIds, len);
-            await interpreter.ui.wait(800);
+            await interpreter.ui.animateRead(node.object.name, len, node.domIds, null, null, null, {
+                onArrive: async () => {
+                    const replacementTargetId = interpreter.getExpressionDisplayTokenId(node)
+                        || (node.domIds && node.domIds.length > 0 ? node.domIds[0] : null);
+                    if (!replacementTargetId) return;
+                    interpreter.ui.replaceTokenText(replacementTargetId, len, true);
+                    interpreter.collapseExpressionTokens(node.domIds, replacementTargetId);
+                    await interpreter.ui.wait(120);
+                }
+            });
             return len;
         }
         if (typeof obj === 'string' && node.object instanceof Identifier) {
