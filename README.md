@@ -54,6 +54,8 @@ flowchart LR
   D --> D2["src/core/interpreterTemplate.ts"]
   D --> D3["src/core/interpreterRuntimeHelpers.ts"]
   D --> D4["src/core/interpreterDomEvents.ts"]
+  D --> D5["src/core/interpreterExecute.ts"]
+  D --> D6["src/core/interpreterEvaluate.ts"]
   D --> E["src/core/language.ts (Lexer/Parser/AST)"]
   D --> F["src/core/scope.ts"]
   D --> G["src/core/virtualDom.ts"]
@@ -71,6 +73,8 @@ flowchart LR
 - `src/core/interpreterTemplate.ts`: template-literal parsing, token rendering, and incremental template evaluation.
 - `src/core/interpreterRuntimeHelpers.ts`: runtime error formatting + DOM/token helper utilities used by interpreter execution.
 - `src/core/interpreterDomEvents.ts`: DOM event propagation helpers, inline handler execution, and callable invocation wrappers.
+- `src/core/interpreterExecute.ts`: statement-level AST execution (`var`, assignment, loops, switch, return/break, call-as-statement).
+- `src/core/interpreterEvaluate.ts`: expression-level AST evaluation (identifiers, members, calls, operators, function invocation flow).
 - `src/core/scope.ts`: lexical scope model.
 - `src/core/virtualDom.ts`: in-memory DOM model and DOM-like operations.
 - `src/core/scenarios.ts`: predefined learning/demo scenarios.
@@ -103,6 +107,8 @@ flowchart LR
 - `src/core/interpreterTemplate.ts`: template literal segment parsing + progressive interpolation rendering.
 - `src/core/interpreterRuntimeHelpers.ts`: runtime error normalization and shared expression/token helpers.
 - `src/core/interpreterDomEvents.ts`: DOM click/event propagation and inline/callable handler execution.
+- `src/core/interpreterExecute.ts`: statement execution engine extracted from `Interpreter.execute()`.
+- `src/core/interpreterEvaluate.ts`: expression evaluation engine extracted from `Interpreter.evaluate()`.
 
 ## Runtime Lifecycle
 
