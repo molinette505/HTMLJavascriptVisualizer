@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script defer>
+        // Obtient l'image avec son id.
+        let elementImagePersonnage = document.getElementById("image-personnage");
+        // Remplace la source de l'image.
+        elementImagePersonnage.setAttribute("src", "https://picsum.photos/id/1025/220/90");
+    </script>
+    <style>
+        .alerte-liste {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #f8fafc;
+            padding: 16px;
+            color: #0f172a;
+            max-width: 440px;
+            font-family: "JetBrains Mono", monospace;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .alerte-liste h4 {
+            margin: 0 0 12px;
+            color: #0f172a;
+        }
+
+        .alerte-liste img {
+            display: block;
+            width: 220px;
+            height: 90px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="alerte-liste">
+        <h4>Image de personnage</h4>
+        <img id="image-personnage" src="https://picsum.photos/id/1015/220/90" alt="Image avant">
+    </div>
+</body>
+
+</html>

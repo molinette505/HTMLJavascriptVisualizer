@@ -1,0 +1,335 @@
+/* File purpose: top toolbar controls, popups, and mode/speed toggles. */
+/* Keeping toolbar styles isolated prevents cross-panel regressions when iterating on controls. */
+
+        /* --- TOOLBAR --- */
+        .toolbar {
+            min-height: var(--header-height);
+            height: var(--header-height);
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: nowrap;
+            align-content: center;
+            padding: 0 10px;
+            row-gap: 0;
+            gap: 10px;
+            z-index: 300;
+            flex-shrink: 0; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            width: 100%;
+            position: relative; /* Pour le popup absolu */
+        }
+
+        .toolbar-main {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            flex: 1;
+            flex-basis: auto;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toolbar-separator {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+            opacity: 0.85;
+            flex-shrink: 0;
+        }
+
+        button.icon-btn {
+            position: relative;
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
+            transition: transform 0.1s, background-color 0.2s;
+            /* FIX 2: Prevent double-tap zoom on buttons but allow scroll/click */
+            touch-action: manipulation;
+        }
+        button.icon-btn:active { transform: scale(0.92); }
+        button.icon-btn:disabled { background: var(--border) !important; opacity: 0.4; pointer-events: none; }
+        .btn-stop-mode { background: #ef4444 !important; }
+        @media (hover: hover) {
+            button.icon-btn[data-tooltip]::after {
+                content: attr(data-tooltip);
+                position: absolute;
+                left: 50%;
+                top: calc(100% + 8px);
+                transform: translateX(-50%) translateY(-4px);
+                background: rgba(15, 23, 42, 0.96);
+                color: #dbeafe;
+                border: 1px solid rgba(96, 165, 250, 0.4);
+                border-radius: 7px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.02em;
+                white-space: nowrap;
+                pointer-events: none;
+                opacity: 0;
+                z-index: 12090;
+                transition: opacity 90ms ease, transform 90ms ease;
+                transition-delay: 50ms;
+            }
+            button.icon-btn[data-tooltip]:hover::after,
+            button.icon-btn[data-tooltip]:focus-visible::after {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+        button.icon-btn.icon-btn-toggle {
+            background: rgba(37, 99, 235, 0.32);
+            border: 1px solid rgba(96, 165, 250, 0.42);
+            color: #bfdbfe;
+        }
+        button.icon-btn.icon-btn-toggle.is-on {
+            background: rgba(37, 99, 235, 0.9);
+            border-color: rgba(147, 197, 253, 0.9);
+            color: #eff6ff;
+        }
+        button.icon-btn.icon-btn-toggle.is-partial:not(.is-on) {
+            background: rgba(180, 83, 9, 0.78);
+            border-color: rgba(253, 186, 116, 0.9);
+            color: #fff7ed;
+        }
+        
+        /* Popup pour le nom de l'événement */
+        .event-popup {
+            position: absolute;
+            top: 100%;
+            left: 10px;
+            margin-top: 8px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            display: none;
+            gap: 6px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+        }
+        .event-popup.visible { display: flex; }
+        .event-popup input {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: var(--code-font-family);
+            width: 120px;
+            outline: none;
+        }
+        .event-popup select {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: var(--code-font-family);
+            width: 220px;
+            outline: none;
+        }
+        .event-popup button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .event-popup .toggle-btn {
+            background: rgba(15, 23, 42, 0.55);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 0 8px;
+        }
+        .event-popup .toggle-btn.is-on {
+            background: var(--accent);
+            color: #ffffff;
+            border-color: #60a5fa;
+            box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.35);
+        }
+        .event-popup button.btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-main);
+        }
+        .load-popup {
+            left: 120px;
+            flex-direction: column;
+            align-items: stretch;
+            width: 270px;
+        }
+        .options-popup {
+            left: 8px;
+            right: auto;
+            flex-direction: column;
+            align-items: stretch;
+            width: 272px;
+        }
+        .options-section {
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+            margin-top: 4px;
+            padding-top: 6px;
+        }
+        .options-section:first-of-type {
+            border-top: 0;
+            margin-top: 0;
+            padding-top: 2px;
+        }
+        .options-section-title {
+            color: var(--text-dim);
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.45px;
+            margin-bottom: 4px;
+        }
+        .option-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 2px 0;
+            color: var(--text-main);
+            font-size: 12px;
+        }
+        .option-row .toggle-btn {
+            min-width: 50px;
+            flex-shrink: 0;
+        }
+        .option-row.option-row-input {
+            align-items: center;
+        }
+        .option-row.option-row-input input {
+            width: 78px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-family: var(--code-font-family);
+            font-size: 12px;
+            text-align: right;
+            outline: none;
+        }
+        .option-value-inline {
+            color: var(--text-dim);
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .load-label {
+            color: var(--text-dim);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        /* Lucide icon adjustments */
+        .lucide { width: 18px; height: 18px; stroke-width: 2.5px; }
+
+        .settings-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .editor-mode-group {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.22);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .mode-btn {
+            background: transparent;
+            color: var(--text-dim);
+            border: 0;
+            border-right: 1px solid rgba(148, 163, 184, 0.28);
+            min-width: 46px;
+            height: 30px;
+            padding: 0 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            touch-action: manipulation;
+        }
+        .mode-btn:last-child { border-right: 0; }
+        .mode-btn.active {
+            background: rgba(59, 130, 246, 0.22);
+            color: #dbeafe;
+        }
+        .mode-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .control-group {
+            display: flex; align-items: center; gap: 2px;
+            background: rgba(0,0,0,0.2); padding: 3px 6px;
+            border-radius: 8px; color: var(--text-dim); font-size: 12px;
+            border: 1px solid var(--border);
+        }
+        
+        .speed-btn {
+            background: transparent;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            width: 24px; height: 24px;
+            border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            /* FIX 2: Prevent double-tap zoom but allow pan */
+            touch-action: manipulation;
+        }
+        .toggle-btn {
+            background: transparent;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            min-width: 42px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 0 8px;
+            touch-action: manipulation;
+        }
+        .toggle-btn.is-on {
+            border-color: var(--accent);
+            color: #bfdbfe;
+            background: rgba(59, 130, 246, 0.18);
+        }
+        #btn-toggle-read-visualization {
+            min-width: 154px;
+            padding: 0 10px;
+            font-size: 11px;
+        }
+        #speed-display {
+            width: 35px; text-align: center; font-family: monospace;
+            font-size: 12px; color: var(--accent); font-weight: bold;
+        }

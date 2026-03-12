@@ -5,19 +5,16 @@ Interactive JavaScript execution visualizer with step-by-step runtime animation,
 ## Features
 
 - Step execution controls: run, pause, stop, next-step, speed control.
-- Breakpoints per line with drag selection and soft breakpoints.
-- Multiple stepping modes: `micro`, `instruction`, and `automatic`.
-- Live code visualization with token highlighting and value propagation animations.
-- Memory panel with scopes, variable values, array references, and type/address metadata toggles.
-- Console panel with structured object tree rendering.
-- Virtual DOM support:
-- tree view with attribute-level highlighting,
-- render preview in iframe,
-- animated DOM read/write/mutation flows.
+- Two step modes: `micro`, `instruction`.
+- Breakpoints per line, including range breakpoints and soft breakpoints.
 - Multi-editor workflow for `js`, `html`, and `css` sources.
-- Scenario loader and external content loading API (`window.loadVisualizerContent`).
-- Embedding controls for host pages (flow toggles, load button visibility, step mode).
-- Optional p5-compatible runtime bridge (draw loop and command forwarding).
+- Runtime dataflow animations from code to memory and back.
+- Memory panel with scope snapshots, value formatting, and optional metadata chips.
+- Console panel with expandable object tree rendering.
+- Virtual DOM tree + render preview + animated DOM read/write/mutation flows.
+- Built-in scenario loader (all `saves/*.js` and `saves/*.html` are auto-discovered).
+- Embed API for loading content and toggling visualizer options from parent pages.
+- Optional p5-compatible runtime bridge (`draw` loop integration).
 
 ## Quick Start
 
@@ -26,106 +23,114 @@ npm install
 npm run dev
 ```
 
-Open the local Vite URL shown in terminal.
+Open the Vite URL printed in the terminal.
 
-## Commands
+## Scripts
 
 - `npm run dev`: start development server.
-- `npm run test`: run Vitest suite.
 - `npm run build`: production build.
-- `npm run build:student`: build + duplicate output to `dist/javascriptEngineVisualizerMobile.html`.
+- `npm run build:student`: build and duplicate output to `dist/javascriptEngineVisualizerMobile.html`.
 - `npm run preview`: preview production build.
+- `npm run test`: run Vitest test suite.
+- `npm run test:watch`: run Vitest in watch mode.
 
-## Build Output
+## Scenario Loading
 
-- Main artifact: `dist/index.html`
-- Student artifact: `dist/javascriptEngineVisualizerMobile.html` (via `npm run build:student`)
+Scenarios are defined by files in the `saves/` directory.
+
+- Supported extensions: `.js`, `.html`
+- Source of truth: filesystem (`import.meta.glob` in `src/core/scenarios.ts`)
+- Ordering: numeric filename prefix first (for example `01-...`, `02-...`), then alphabetical
+- Metadata overrides: specific files can customize labels and UI options (for example p5 scenario mode)
 
 ## Architecture
 
 ```mermaid
 flowchart LR
   A["src/main.ts"] --> B["src/ui/app.ts"]
+  A --> C["src/ui/ui.ts"]
   B --> B1["src/ui/appContent.ts"]
   B --> B2["src/ui/appP5.ts"]
-  A --> C["src/ui/ui.ts"]
+  B --> S["src/core/scenarios.ts"]
   B --> D["src/core/interpreter.ts"]
-  D --> D1["src/core/interpreterPause.ts"]
-  D --> D2["src/core/interpreterTemplate.ts"]
-  D --> D3["src/core/interpreterRuntimeHelpers.ts"]
+  D --> D1["src/core/interpreterExecute.ts"]
+  D --> D2["src/core/interpreterEvaluate.ts"]
+  D --> D3["src/core/interpreterPause.ts"]
   D --> D4["src/core/interpreterDomEvents.ts"]
-  D --> D5["src/core/interpreterExecute.ts"]
-  D --> D6["src/core/interpreterEvaluate.ts"]
-  D --> E["src/core/language.ts (Lexer/Parser/AST)"]
+  D --> D5["src/core/interpreterRuntimeHelpers.ts"]
+  D --> D6["src/core/interpreterTemplate.ts"]
+  D --> E["src/core/language.ts"]
   D --> F["src/core/scope.ts"]
   D --> G["src/core/virtualDom.ts"]
-  C --> H["src/ui/* helpers"]
-  C --> I["DOM panels, animations, breakpoints"]
-  B --> J["Scenarios + External content + p5 bridge"]
+  G --> G1["src/core/virtualDomParse.ts"]
+  G --> G2["src/core/virtualDomQuery.ts"]
+  G --> G3["src/core/virtualDomSerialize.ts"]
+  C --> U1["src/ui/memoryPanel.ts"]
+  C --> U2["src/ui/domAnimationPanel.ts"]
+  C --> U3["src/ui/tokenAnimations.ts"]
+  C --> U4["src/ui/executionControls.ts"]
+  C --> U5["src/ui/uiOptions.ts"]
+  C --> U6["src/ui/uiTooltips.ts"]
+  C --> U7["src/ui/uiLayout.ts"]
 ```
 
-### Source Map
+## Source Map
 
-- `src/main.ts`: application bootstrap, global window API bindings, desktop/mobile panel interactions.
-- `src/core/language.ts`: tokenizer + parser + AST node definitions.
-- `src/core/interpreter.ts`: main runtime evaluator/orchestrator and AST execution flow.
-- `src/core/interpreterPause.ts`: pause/step gating and pedagogical stack helpers.
-- `src/core/interpreterTemplate.ts`: template-literal parsing, token rendering, and incremental template evaluation.
-- `src/core/interpreterRuntimeHelpers.ts`: runtime error formatting + DOM/token helper utilities used by interpreter execution.
-- `src/core/interpreterDomEvents.ts`: DOM event propagation helpers, inline handler execution, and callable invocation wrappers.
-- `src/core/interpreterExecute.ts`: statement-level AST execution (`var`, assignment, loops, switch, return/break, call-as-statement).
-- `src/core/interpreterEvaluate.ts`: expression-level AST evaluation (identifiers, members, calls, operators, function invocation flow).
-- `src/core/scope.ts`: lexical scope model.
-- `src/core/virtualDom.ts`: in-memory DOM model and DOM-like operations.
-- `src/core/virtualDomParse.ts`: HTML-to-virtual-DOM parsing helpers with adapter hooks.
-- `src/core/virtualDomQuery.ts`: selector parsing/matching and DOM traversal helpers (`querySelector`, `getElementById`, parent lookup).
-- `src/core/virtualDomSerialize.ts`: virtual DOM to HTML string serialization helpers.
-- `src/core/scenarios.ts`: predefined learning/demo scenarios.
-- `src/ui/app.ts`: high-level app controller (editor modes, run lifecycle, scenarios, embed options, p5 mode).
-- `src/ui/appContent.ts`: editor-mode and external-content normalization/parsing helpers.
-- `src/ui/appP5.ts`: p5 runtime document generation and p5 orchestration methods (attached to `app`).
-- `src/ui/ui.ts`: main UI state + panel rendering + animation orchestration.
-- `src/ui/editor.ts`: textarea/editor behaviors (indentation, undo/redo, refresh).
-- `src/ui/icons.ts`: icon rendering and refresh helpers.
+### Runtime Core (`src/core`)
 
-### UI Module Split (recent refactor)
+- `language.ts`: lexer/parser and AST generation.
+- `interpreter.ts`: runtime orchestrator.
+- `interpreterExecute.ts`: statement execution engine.
+- `interpreterEvaluate.ts`: expression evaluation engine.
+- `interpreterPause.ts`: stepping and pause policy.
+- `interpreterDomEvents.ts`: event propagation and handler execution.
+- `interpreterRuntimeHelpers.ts`: shared runtime helper utilities.
+- `interpreterTemplate.ts`: template-literal evaluation helpers.
+- `scope.ts`: lexical scope model.
+- `virtualDom.ts`: virtual DOM document model and operations.
+- `virtualDomParse.ts`: HTML parsing into virtual nodes.
+- `virtualDomQuery.ts`: selector traversal/matching utilities.
+- `virtualDomSerialize.ts`: virtual node serialization.
+- `scenarios.ts`: scenario discovery and scenario metadata normalization.
 
-`src/ui/ui.ts` was decomposed into focused helper modules to reduce file size and improve maintainability:
+### UI Layer (`src/ui`)
 
-- `src/ui/markup.ts`: HTML escaping + JS template token rendering + HTML/CSS code rendering.
-- `src/ui/valueFormatting.ts`: runtime value formatting for code/memory tooltips and metadata.
-- `src/ui/consoleTree.ts`: structured console value tree renderer + stack filtering.
-- `src/ui/domHelpers.ts`: virtual DOM tree markup, inline DOM value chips, DOM path helpers.
-- `src/ui/flowGuide.ts`: animated flow-line overlay primitives.
-- `src/ui/executionControls.ts`: breakpoints, pause logic, and step-mode controls attached to `ui`.
-- `src/ui/domAnimationPanel.ts`: DOM panel rendering and DOM mutation/read/write animation methods attached to `ui`.
-- `src/ui/memoryPanel.ts`: memory snapshot rendering and array/memory highlight methods attached to `ui`.
-- `src/ui/tokenAnimations.ts`: token/value flow animations and token replacement lifecycle methods attached to `ui`.
-- `src/ui/uiOptions.ts`: options popup open/close/position behavior attached to `ui`.
-- `src/ui/uiTooltips.ts`: code/memory tooltip and detached portal behaviors attached to `ui`.
-- `src/ui/uiLayout.ts`: drawer/tab/mobile-tools layout methods attached to `ui`.
+- `app.ts`: app lifecycle, editor modes, scenario apply/load, embed options.
+- `appContent.ts`: external payload normalization and editor buffer helpers.
+- `appP5.ts`: p5 runtime bridge methods.
+- `ui.ts`: central UI state and wiring.
+- `memoryPanel.ts`: memory tree rendering and focus animations.
+- `domAnimationPanel.ts`: DOM panel rendering and mutation animations.
+- `tokenAnimations.ts`: token/data flight animations and replacement effects.
+- `executionControls.ts`: step mode + breakpoint control logic.
+- `uiOptions.ts`: options panel open/close/position management.
+- `uiTooltips.ts`: value tooltip and detached portal rendering.
+- `uiLayout.ts`: drawer/tab/mobile layout management.
+- `editor.ts`: editor behavior (indent/outdent, undo/redo, sync helpers).
+- `markup.ts`, `valueFormatting.ts`, `consoleTree.ts`, `domHelpers.ts`, `flowGuide.ts`: rendering and visualization helpers.
 
-### Interpreter Module Split (recent refactor)
+### Styles (`src/styles`)
 
-`src/core/interpreter.ts` now delegates focused concerns to dedicated modules:
-
-- `src/core/interpreterPause.ts`: step/pause control policy and suppression handling.
-- `src/core/interpreterTemplate.ts`: template literal segment parsing + progressive interpolation rendering.
-- `src/core/interpreterRuntimeHelpers.ts`: runtime error normalization and shared expression/token helpers.
-- `src/core/interpreterDomEvents.ts`: DOM click/event propagation and inline/callable handler execution.
-- `src/core/interpreterExecute.ts`: statement execution engine extracted from `Interpreter.execute()`.
-- `src/core/interpreterEvaluate.ts`: expression evaluation engine extracted from `Interpreter.evaluate()`.
+- `main.css`: style entrypoint that imports all style modules.
+- `base.css`: theme tokens, global reset, root/body sizing behavior.
+- `toolbar.css`: top controls, load/options popups, mode and speed controls.
+- `editor.css`: editor region, line numbers, code layers, syntax highlighting.
+- `mobile-tools.css`: mobile tool rows and touch-first tool controls.
+- `drawer-dom.css`: right panel shell, drawer tabs, DOM panel and desktop rules.
+- `memory-console.css`: memory panel and console panel styling.
+- `animations.css`: runtime animation classes and keyframes.
+- `scrollbars.css`: custom scrollbar theme for core panels.
 
 ## Runtime Lifecycle
 
-1. `main.ts` initializes UI and editor state.
-2. `app.start()` creates an `Interpreter` with current `js/html/css` buffers.
-3. Interpreter tokenizes/parses code and executes AST nodes.
-4. Interpreter calls UI hooks (`renderCode`, `updateMemory`, `highlightLines`, DOM updates).
-5. UI panels animate dataflow, memory updates, and virtual DOM mutations.
-6. On completion, app stays event-ready for interactive callbacks (e.g. `onClick`).
+1. `src/main.ts` boots UI/editor and binds global embed methods.
+2. `app.start()` builds interpreter context from current `js/html/css` buffers.
+3. Interpreter parses and executes AST nodes.
+4. Runtime events feed UI updates (code highlighting, memory, DOM, console).
+5. UI modules render panels and play animations.
+6. Execution finishes, then event callbacks remain available for interaction.
 
-## Embedding / Iframe API
+## Embed API
 
 Global methods exposed on `window`:
 
@@ -135,51 +140,24 @@ Global methods exposed on `window`:
 
 ### `loadVisualizerContent(payload)`
 
-Supported payload fields:
+Common fields:
 
-- `js` or `code`: JavaScript source.
-- `html` or `domHtml`: HTML source for virtual DOM.
-- `css` or `domCss`: CSS source.
-- `run`: auto-start execution after load.
-- `clearConsole`: clear console before load.
-- `label` / `source` / `title`: display label for load log.
-- `editor` / `editorMode` / `startEditor`: initial editor tab (`js|html|css`).
-- `tab` / `drawerTab` / `startTab` / `view`: initial drawer tab (`memory|console|dom`).
-- `ui`: embed UI options object.
+- Code sources: `js`/`code`, `html`/`domHtml`, `css`/`domCss`
+- Run control: `run`, `clearConsole`
+- Labels: `label`, `source`, `title`
+- Initial views: `editor`/`editorMode`/`startEditor`, `tab`/`drawerTab`/`startTab`/`view`
+- UI options: `ui`
 
 ### `setVisualizerEmbedOptions(options)`
 
 Common options:
 
-- `readVisualizationMode`: `line | data | both`
-- `flowLineEnabled`: boolean
-- `dataFlowEnabled`: boolean
-- `showFlowLineToggle`: boolean
-- `showLoadButton`: boolean
-- `stepMode`: `micro | instruction | automatic`
-- `p5ModeEnabled` / `p5Enabled`: boolean
-- `p5FrameRate` / `p5Fps`: number
-- `p5DeltaTime` / `p5DeltaTimeMs`: number
-- `p5FrameDelayMs`: number
-
-Example:
-
-```js
-const iframe = document.getElementById('viz');
-iframe.contentWindow.loadVisualizerContent({
-  js: 'let a = 1; console.log(a);',
-  html: '<body><h1 id="title">Demo</h1></body>',
-  css: 'h1 { color: #2563eb; }',
-  run: false,
-  ui: {
-    readVisualizationMode: 'both',
-    showFlowLineToggle: true,
-    showLoadButton: false
-  }
-});
-```
+- Read visualization: `readVisualizationMode` (`line | data | both`)
+- Toggles: `flowLineEnabled`, `dataFlowEnabled`, `showFlowLineToggle`, `showLoadButton`
+- Step mode: `stepMode` (`micro | instruction`)
+- p5 options: `p5ModeEnabled`, `p5FrameRate`, `p5DeltaTime`, `p5FrameDelayMs`
 
 ## Testing
 
-- Test framework: Vitest.
-- Current tests: interpreter-focused regression tests in `tests/interpreter.test.ts`.
+- Framework: Vitest
+- Main tests: `tests/interpreter.test.ts`

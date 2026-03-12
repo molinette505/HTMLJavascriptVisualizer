@@ -1,0 +1,78 @@
+/* File purpose: mobile-only tool rows and touch-friendly action buttons. */
+/* Desktop behavior is intentionally kept out of this file to simplify responsive changes. */
+
+        /* --- MOBILE TOOLBAR --- */
+        .mobile-tools-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 2000;
+            display: none;
+            flex-direction: column;
+            pointer-events: none;
+        }
+        
+        .mobile-tools-container.visible {
+            display: flex;
+        }
+
+        .toolbar-row {
+            display: flex;
+            gap: 6px;
+            padding: 6px;
+            background: var(--bg-panel);
+            border-top: 1px solid var(--border);
+            overflow-x: auto;
+            pointer-events: auto;
+            width: 100%;
+        }
+
+        .sub-toolbar {
+            background: #111827; 
+            border-bottom: 1px solid var(--border);
+            border-top: none;
+            padding-bottom: 2px;
+            min-height: 44px;
+            transform-origin: bottom;
+            animation: slideUp 0.15s ease-out;
+        }
+        .sub-toolbar.hidden { display: none; }
+
+        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .tool-btn {
+            background: var(--mem-cell);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            min-width: 42px; 
+            height: 38px;
+            padding: 0 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--code-font-family);
+            font-size: 16px;
+            cursor: pointer;
+            user-select: none;
+            flex-shrink: 0;
+            position: relative;
+            /* FIX 2: Allow panning/scrolling, disable zoom */
+            touch-action: manipulation;
+        }
+        
+        .tool-btn:active { background: var(--accent); color: white; border-color: var(--accent); }
+        .tool-btn.active-category {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .tool-label {
+            font-size: 10px;
+            position: absolute;
+            top: 2px; right: 2px;
+            color: var(--text-dim); pointer-events: none;
+        }
+        .btn-text-sm { font-size: 13px; font-weight: 600; }
+        .tool-spacer { width: 1px; background: var(--border); margin: 0 4px; height: 24px; align-self: center; flex-shrink: 0; }

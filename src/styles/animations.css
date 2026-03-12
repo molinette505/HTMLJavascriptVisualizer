@@ -1,0 +1,119 @@
+/* File purpose: runtime animation classes and shared keyframes. */
+/* Animation timing is controlled globally with --time-scale to keep UX tuning centralized. */
+
+        /* Animation Elements */
+        .flying-element { position: absolute; z-index: 12000; background: var(--accent); color: white; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; pointer-events: none; white-space: pre; box-shadow: 0 4px 12px rgba(0,0,0,0.5); font-weight: bold; }
+        .flying-dom-node {
+            z-index: 12050;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+        }
+        .dom-fly-badge {
+            margin: 0;
+            width: max-content;
+            max-width: none;
+        }
+        .flow-link-highlight {
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.55), 0 0 12px rgba(59, 130, 246, 0.35);
+            background-color: rgba(59, 130, 246, 0.18) !important;
+            border-radius: 6px;
+            transition: box-shadow 0.12s ease, background-color 0.12s ease;
+        }
+        .expr-flow-target {
+            pointer-events: none;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+        }
+        .expr-collapse-highlight {
+            pointer-events: none;
+            border-radius: 6px;
+            background: rgba(167, 139, 250, 0.2);
+            border: 1px solid rgba(167, 139, 250, 0.45);
+            box-shadow: 0 0 12px rgba(167, 139, 250, 0.28);
+        }
+        .flow-var-code {
+            color: #fef08a !important;
+            background: rgba(250, 204, 21, 0.2) !important;
+            box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.5), 0 0 10px rgba(250, 204, 21, 0.28);
+            border-radius: 5px;
+            transition: color 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+        }
+        .flow-var-memory {
+            color: #fef08a !important;
+            text-shadow: 0 0 10px rgba(250, 204, 21, 0.35);
+            transition: color 0.12s ease, text-shadow 0.12s ease;
+        }
+        .flow-link-line {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 11990;
+            overflow: visible;
+        }
+        .flow-link-path {
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+        }
+        .flow-link-path-glow {
+            stroke-width: 9px;
+            opacity: 0.2;
+            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
+            animation: flowLinePulse 0.95s ease-in-out infinite alternate;
+        }
+        .flow-link-path-core {
+            stroke-width: 2.6px;
+            opacity: 0.98;
+            animation: none;
+        }
+        .flow-link-endpoint {
+            stroke: rgba(219, 234, 254, 0.9);
+            stroke-width: 1.1;
+            filter: drop-shadow(0 0 5px rgba(96, 165, 250, 0.6));
+        }
+        .flow-link-endpoint.source {
+            fill: rgba(125, 211, 252, 0.95);
+        }
+        .flow-link-endpoint.destination {
+            fill: rgba(59, 130, 246, 0.98);
+        }
+        .val-replacement { display: inline-block; background: rgba(34, 211, 238, 0.2); border-radius: 3px; padding: 0 2px; color: #fff; font-weight: bold; }
+        .op-result { background: rgba(167, 139, 250, 0.3); border-radius: 3px; color: #fff; }
+        .cell-entry { animation: cellEntry calc(0.3s * var(--time-scale)) ease-out forwards; }
+        .cell-remove { animation: slideOut calc(0.4s * var(--time-scale)) ease-out forwards !important; }
+        .flash-write { animation: flashWrite calc(1s * var(--time-scale)) ease-out; }
+        .flash-read { animation: flashRead calc(1s * var(--time-scale)) ease-out; }
+        .console-flash { animation: flashConsole calc(0.5s * var(--time-scale)) ease-out; }
+        @keyframes cellEntry {
+            0% { opacity: 0; transform: translateX(-10px) scale(0.92); }
+            100% { opacity: 1; transform: translateX(0) scale(1); }
+        }
+        @keyframes slideOut {
+            0% { opacity: 1; transform: translateX(0) scale(1); }
+            100% { opacity: 0; transform: translateX(20px) scale(0.9); }
+        }
+        @keyframes flashWrite { 0% { background: rgba(59, 130, 246, 0.5); } 100% { background: transparent; } }
+        @keyframes flashRead { 0% { background: rgba(34, 211, 238, 0.4); } 100% { background: transparent; } }
+        @keyframes flashConsole { 0% { background: rgba(255, 255, 255, 0.15); } 100% { background: transparent; } }
+        @keyframes flowLineDash { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -36; } }
+        @keyframes flowLinePulse { from { opacity: 0.16; } to { opacity: 0.28; } }
+        @keyframes memoryPortalIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes memoryPortalOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes memoryPortalPanelIn { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes memoryPortalPanelOut { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(8px) scale(0.985); } }
+        @keyframes memoryArrayPortalPanelIn {
+            from { opacity: 0; transform: translateX(-14px) translateY(8px) scale(0.97); }
+            to { opacity: 1; transform: translateX(0) translateY(0) scale(1); }
+        }
+        @keyframes memoryArrayPortalPanelOut {
+            from { opacity: 1; transform: translateX(0) translateY(0) scale(1); }
+            to { opacity: 0; transform: translateX(-10px) translateY(6px) scale(0.975); }
+        }
+
+        @keyframes domPulse {
+            0% { transform: scale(0.98); }
+            100% { transform: scale(1); }
+        }

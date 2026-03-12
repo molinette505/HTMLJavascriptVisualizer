@@ -3,6 +3,7 @@
 import { DEFAULT_CODE } from '../core/config';
 import { Lexer } from '../core/language';
 import { ui } from './ui';
+import { editorAutocomplete } from './editorAutocomplete';
 
 export const editor = {
     history: [DEFAULT_CODE], historyIdx: 0, timeout: null,
@@ -13,7 +14,10 @@ export const editor = {
             ? window.app.getCurrentEditorMode()
             : 'js';
         if (mode === 'js') ui.renderCode(new Lexer(text).tokenize());
-        else ui.renderPlainCode(text, mode);
+        else {
+            ui.renderPlainCode(text, mode);
+            editorAutocomplete.hide();
+        }
         ui.updateLineNumbers(text);
     },
     handleInput: () => { 
@@ -23,6 +27,8 @@ export const editor = {
             window.app.onEditorInput(document.getElementById('code-input').value);
         }
         editor.refresh(); 
+        // Keep autocomplete synchronized with latest text/caret after every input update.
+        editorAutocomplete.handleInput();
         if (editor.timeout) clearTimeout(editor.timeout); 
         editor.timeout = setTimeout(() => editor.saveHistory(), 500); 
     },

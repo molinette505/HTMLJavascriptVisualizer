@@ -1,0 +1,295 @@
+/* File purpose: editor workspace layout, code layers, and syntax token colors. */
+/* This module owns code-area ergonomics (scroll, line numbers, execution line overlays). */
+
+        /* --- CONTAINER PRINCIPAL --- */
+        .main-container {
+            display: flex;
+            flex: 1; 
+            position: relative;
+            overflow: hidden;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .desktop-splitter {
+            display: none;
+            width: 8px;
+            flex-shrink: 0;
+            cursor: col-resize;
+            background: linear-gradient(
+                180deg,
+                rgba(96, 165, 250, 0.06),
+                rgba(148, 163, 184, 0.04)
+            );
+            border-left: 1px solid rgba(148, 163, 184, 0.12);
+            border-right: 1px solid rgba(30, 41, 59, 0.9);
+            transition: background 0.15s ease;
+        }
+        .desktop-splitter:hover,
+        .desktop-splitter.is-dragging {
+            background: linear-gradient(
+                180deg,
+                rgba(59, 130, 246, 0.2),
+                rgba(14, 165, 233, 0.12)
+            );
+        }
+
+        .editor-container {
+            flex: 1; 
+            min-height: 0; 
+            position: relative;
+            background: #151b2b;
+            overflow: hidden;
+            display: flex;
+            width: 100%;
+        }
+
+        .line-numbers {
+            width: 38px;
+            background: var(--bg-dark);
+            border-right: 1px solid var(--border);
+            color: var(--text-dim);
+            /* FIX 1: Match padding-bottom with code-layer (120px) to sync scroll end */
+            padding: 10px 3px 120px 3px;
+            font-family: var(--code-font-family);
+            font-size: var(--content-scale);
+            line-height: var(--line-height);
+            user-select: none;
+            opacity: 0.6;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .line-number-item {
+            display: block;
+            width: 100%;
+            min-height: calc(var(--content-scale) * var(--line-height));
+            margin: 0;
+            padding: 0 4px 0 2px;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: inherit;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: var(--line-height);
+            text-align: right;
+            cursor: pointer;
+            appearance: none;
+            transition: background 0.14s ease, box-shadow 0.14s ease, color 0.14s ease;
+        }
+        .line-number-item:hover {
+            background: rgba(59, 130, 246, 0.1);
+            color: #dbeafe;
+        }
+        .line-number-item.has-breakpoint {
+            background: rgba(59, 130, 246, 0.22);
+            color: #bfdbfe;
+            box-shadow: none;
+        }
+        .line-number-item.has-soft-breakpoint {
+            background: rgba(245, 158, 11, 0.22);
+            color: #fde68a;
+            box-shadow: none;
+        }
+        .line-number-item.has-breakpoint.bp-single {
+            border-radius: 4px;
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.55);
+        }
+        .line-number-item.has-breakpoint.bp-start {
+            border-radius: 4px 4px 0 0;
+            box-shadow:
+                inset 1px 1px 0 rgba(96, 165, 250, 0.55),
+                inset -1px 0 0 rgba(96, 165, 250, 0.55);
+        }
+        .line-number-item.has-breakpoint.bp-mid {
+            border-radius: 0;
+            box-shadow:
+                inset 1px 0 0 rgba(96, 165, 250, 0.55),
+                inset -1px 0 0 rgba(96, 165, 250, 0.55);
+        }
+        .line-number-item.has-breakpoint.bp-end {
+            border-radius: 0 0 4px 4px;
+            box-shadow:
+                inset 1px 0 0 rgba(96, 165, 250, 0.55),
+                inset -1px -1px 0 rgba(96, 165, 250, 0.55);
+        }
+        .line-number-item.has-soft-breakpoint.bp-single {
+            border-radius: 4px;
+            box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.62);
+        }
+        .line-number-item.has-soft-breakpoint.bp-start {
+            border-radius: 4px 4px 0 0;
+            box-shadow:
+                inset 1px 1px 0 rgba(245, 158, 11, 0.62),
+                inset -1px 0 0 rgba(245, 158, 11, 0.62);
+        }
+        .line-number-item.has-soft-breakpoint.bp-mid {
+            border-radius: 0;
+            box-shadow:
+                inset 1px 0 0 rgba(245, 158, 11, 0.62),
+                inset -1px 0 0 rgba(245, 158, 11, 0.62);
+        }
+        .line-number-item.has-soft-breakpoint.bp-end {
+            border-radius: 0 0 4px 4px;
+            box-shadow:
+                inset 1px 0 0 rgba(245, 158, 11, 0.62),
+                inset -1px -1px 0 rgba(245, 158, 11, 0.62);
+        }
+        .line-number-item.is-stack-frame {
+            background: rgba(148, 163, 184, 0.22);
+            color: #dbeafe;
+        }
+        .line-number-item.is-current-line {
+            background: rgba(59, 130, 246, 0.35);
+            color: #e2e8f0;
+            box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.8);
+        }
+
+        /* Wrapper qui scroll */
+        .code-wrapper {
+            position: relative;
+            flex: 1;
+            overflow: auto; 
+            -webkit-overflow-scrolling: touch;
+            scroll-behavior: smooth; 
+        }
+
+        /* Conteneur de taille qui force le scroll horizontal si besoin */
+        .code-sizer {
+            position: relative;
+            min-width: 100%;
+            width: max-content; /* S'agrandit avec le texte pour le scroll horizontal */
+            min-height: 100%;
+        }
+
+        /* Couches de code (Highlighter + Textarea) */
+        .code-layer {
+            padding: 10px;
+            padding-bottom: 120px; 
+            margin: 0;
+            border: 0;
+            font-family: var(--code-font-family);
+            font-size: var(--content-scale);
+            line-height: var(--line-height);
+            white-space: pre;
+            tab-size: 4;
+            text-align: left;
+        }
+
+        #highlight-layer { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 1; pointer-events: none; overflow: hidden;
+        }
+        
+        #code-display { 
+            position: relative; /* C'est lui qui définit la taille du layout */
+            z-index: 2; pointer-events: none; color: var(--text-main); 
+            overflow: visible;
+        }
+        
+        #code-input {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 3;
+            color: transparent; 
+            background: transparent;
+            caret-color: var(--accent); 
+            resize: none;
+            outline: none;
+            overflow: hidden; /* Scroll géré par le wrapper */
+            -webkit-text-size-adjust: none;
+            text-size-adjust: none;
+        }
+        
+        #code-input::selection { background: rgba(59, 130, 246, 0.3); color: transparent; }
+
+        /* Syntax Highlighting */
+        .tok-keyword { color: #c678dd; font-weight: bold; }
+        .tok-string { color: #98c379; }
+        .tok-number { color: #d19a66; }
+        .tok-boolean { color: #d19a66; font-weight: bold; }
+        .tok-comment { color: #5c6370; font-style: italic; }
+        .tok-function { color: #61afef; }
+        .tok-operator { color: #56b6c2; }
+        .tok-punctuation { color: #abb2bf; }
+        .tok-ident { color: #e2e8f0; }
+        .tok-plain-html { color: #f8fafc; }
+        .tok-plain-css { color: #bae6fd; }
+        .tok-html-tag { color: #f472b6; font-weight: 700; }
+        .tok-html-attr { color: #facc15; }
+        .tok-html-string { color: #86efac; }
+        .tok-html-punc { color: #cbd5e1; }
+        .tok-html-text { color: #e2e8f0; }
+        .tok-css-selector { color: #93c5fd; font-weight: 600; }
+        .tok-css-property { color: #facc15; }
+        .tok-css-value { color: #86efac; }
+        .tok-css-string { color: #bbf7d0; }
+        .tok-css-punc { color: #cbd5e1; }
+
+        .exec-line {
+            position: absolute; left: 0; 
+            width: 100%;
+            height: calc(var(--content-scale) * var(--line-height));
+            background: rgba(59, 130, 246, 0.25);
+            border-left: 3px solid var(--accent);
+            pointer-events: none; transition: top 0.15s ease-out;
+        }
+        .exec-line-stack {
+            position: absolute; left: 0; width: 100%;
+            height: calc(var(--content-scale) * var(--line-height));
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 3px solid #555;
+            pointer-events: none;
+        }
+
+        /* Autocomplete popup rendered inside the editor scroll area. */
+        .editor-autocomplete {
+            position: absolute;
+            z-index: 12200;
+            min-width: 220px;
+            max-width: min(420px, 70vw);
+            max-height: 240px;
+            overflow: auto;
+            border: 1px solid rgba(96, 165, 250, 0.55);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.96);
+            box-shadow: 0 12px 26px rgba(2, 6, 23, 0.58);
+            backdrop-filter: blur(2px);
+        }
+        .editor-autocomplete.hidden {
+            display: none;
+        }
+        .editor-autocomplete-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            padding: 4px;
+        }
+        .editor-autocomplete-item {
+            width: 100%;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: #dbeafe;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            text-align: left;
+            padding: 6px 8px;
+            font-family: var(--code-font-family);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .editor-autocomplete-item:hover,
+        .editor-autocomplete-item.is-selected {
+            background: rgba(59, 130, 246, 0.24);
+            color: #eff6ff;
+        }
+        .editor-autocomplete-kind {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #93c5fd;
+            opacity: 0.85;
+            flex-shrink: 0;
+        }

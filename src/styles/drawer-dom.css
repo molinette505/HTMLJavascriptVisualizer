@@ -1,0 +1,277 @@
+/* File purpose: right drawer shell, DOM panel rendering area, and desktop layout overrides. */
+/* Centralizing drawer styles here keeps panel open/close behavior predictable across breakpoints. */
+
+        /* --- RIGHT PANEL --- */
+        .right-panel {
+            position: relative; 
+            width: 100%;
+            height: 32px; 
+            background: var(--bg-panel);
+            border-top: 1px solid var(--accent);
+            border-radius: 16px 16px 0 0;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: height 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+            box-shadow: 0 -8px 30px rgba(0,0,0,0.6);
+            flex-shrink: 0; 
+        }
+
+        .right-panel.open { height: var(--drawer-height); }
+
+        .drawer-handle-bar {
+            height: 32px;
+            background: #273549;
+            border-radius: 16px 16px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: ns-resize;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            touch-action: none; 
+        }
+
+        .drawer-handle-icon {
+            width: 40px; height: 5px; background: var(--text-dim); border-radius: 3px; opacity: 0.5;
+        }
+
+        .drawer-tabs { display: flex; background: var(--bg-dark); flex-shrink: 0; }
+        .drawer-tab {
+            flex: 1; padding: 12px; text-align: center;
+            background: var(--bg-panel); color: var(--text-dim);
+            font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;
+            border-bottom: 2px solid transparent; transition: 0.2s; cursor: pointer;
+        }
+        .drawer-tab.active {
+            color: var(--accent); border-bottom: 2px solid var(--accent);
+            background: rgba(59, 130, 246, 0.05); font-weight: 700;
+        }
+
+        .drawer-content { flex: 1; overflow: hidden; display: none; position: relative; }
+        .drawer-content.active { display: flex; flex-direction: column; }
+        .dom-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(15, 23, 42, 0.8);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .dom-view {
+            display: none;
+            flex: 1;
+            overflow: auto;
+            background: #0c1527;
+        }
+        .dom-view.active {
+            display: block;
+        }
+        .dom-view-render {
+            display: none;
+        }
+        #view-dom.show-render #dom-view-tree {
+            flex: 1;
+            min-height: 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        }
+        #view-dom.show-render #dom-view-render {
+            display: block;
+            flex: 1;
+            min-height: 0;
+        }
+        .dom-render-frame {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #ffffff;
+        }
+        #dom-view-tree {
+            padding: 12px;
+            color: #c8d6f1;
+            position: relative;
+        }
+        .dom-tree-node {
+            border: 1px solid #334155;
+            background: #111f35;
+            border-radius: 8px;
+            padding: 6px 8px;
+            margin: 6px 0;
+            font-family: var(--code-font-family);
+            font-size: 12px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .dom-tree-tag { color: #a855f7; font-weight: 700; }
+        .dom-tree-id { color: #60a5fa; font-weight: 700; }
+        .dom-tree-class { color: #94a3b8; }
+        .dom-tree-attrs { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+        .dom-tree-attr {
+            color: #cbd5e1;
+            border: 0;
+            padding: 0;
+            border-radius: 0;
+            font-size: 12px;
+        }
+        .dom-tree-text { border-style: dashed; }
+        .dom-tree-text-label { color: #f59e0b; font-weight: 700; }
+        .dom-tree-empty { color: var(--text-dim); padding: 6px; }
+        .memory-dom-tooltip {
+            position: fixed;
+            z-index: 12120;
+            pointer-events: none;
+            width: min(520px, 72vw);
+            max-height: 46vh;
+            overflow: auto;
+            background: #0c1527;
+            border: 1px solid rgba(96, 165, 250, 0.5);
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 12px 28px rgba(2, 6, 23, 0.6);
+        }
+        .memory-dom-tooltip .dom-tree-node {
+            margin: 4px 0;
+        }
+        .code-value-tooltip {
+            position: fixed;
+            z-index: 12130;
+            pointer-events: none;
+            min-width: 120px;
+            max-width: min(420px, 72vw);
+            background: #0c1527;
+            border: 1px solid rgba(96, 165, 250, 0.6);
+            border-radius: 8px;
+            padding: 8px 10px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.55);
+        }
+        .code-value-tooltip.is-dom {
+            width: min(520px, 72vw);
+            max-height: 46vh;
+            overflow: auto;
+        }
+        .code-value-tooltip-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 3px;
+        }
+        .code-value-tooltip-name {
+            color: #93c5fd;
+            font-family: var(--code-font-family);
+            font-size: 11px;
+            opacity: 0.92;
+        }
+        .code-value-tooltip-type {
+            color: #dbeafe;
+            border: 1px solid rgba(96, 165, 250, 0.55);
+            background: rgba(30, 64, 175, 0.26);
+            border-radius: 999px;
+            padding: 1px 7px;
+            font-family: var(--code-font-family);
+            font-size: 10px;
+            line-height: 1.5;
+            white-space: nowrap;
+            text-transform: lowercase;
+        }
+        .code-value-tooltip-value {
+            color: #e2e8f0;
+            font-family: var(--code-font-family);
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .code-value-tooltip-dom .dom-tree-node {
+            margin: 4px 0;
+        }
+        .dom-tree-node.dom-highlight {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+            animation: domPulse calc(0.6s * var(--time-scale)) ease-out;
+        }
+        .dom-tree-node.dom-parent-highlight {
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.35);
+            background: rgba(59, 130, 246, 0.15);
+        }
+        .dom-tree-node.dom-replaced-highlight {
+            border-color: #facc15;
+            box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.28);
+            background: rgba(250, 204, 21, 0.12);
+        }
+        .dom-tree-node.dom-insert-space {
+            margin-top: 10px;
+            margin-bottom: 16px;
+            min-height: 44px;
+            transition: margin calc(0.25s * var(--time-scale)) ease, min-height calc(0.25s * var(--time-scale)) ease;
+        }
+        .dom-tree-node.dom-remove-leave {
+            animation: slideOut calc(0.4s * var(--time-scale)) ease-out forwards !important;
+        }
+        .dom-tree-id.dom-attr-highlight,
+        .dom-tree-class.dom-attr-highlight {
+            background: rgba(250, 204, 21, 0.2);
+            border: 1px solid rgba(250, 204, 21, 0.95);
+            color: #fde68a;
+            border-radius: 999px;
+            padding: 1px 6px;
+            box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.22);
+        }
+        .dom-tree-attr.dom-attr-highlight {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px dashed rgba(250, 204, 21, 0.95);
+            color: #fde68a;
+            border-radius: 0;
+            padding: 0 1px;
+            box-shadow: none;
+        }
+        .dom-insert-target {
+            border-style: dashed;
+            border-color: rgba(96, 165, 250, 0.75);
+            background: rgba(96, 165, 250, 0.12);
+            min-height: 42px;
+            border-radius: 8px;
+        }
+        .dom-group-highlight-box {
+            position: absolute;
+            pointer-events: none;
+            border: 2px dashed rgba(96, 165, 250, 0.92);
+            border-radius: 8px;
+            background: rgba(96, 165, 250, 0.12);
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.22);
+            z-index: 4;
+        }
+
+        /* --- DESKTOP --- */
+        @media (min-width: 800px) {
+            .main-container { flex-direction: row; }
+            .desktop-splitter { display: block; }
+            .right-panel {
+                width: 420px; height: 100% !important; 
+                border-top: none; border-left: 1px solid var(--border);
+                border-radius: 0; box-shadow: none; transition: none;
+            }
+            .drawer-handle-bar { display: none; }
+            .drawer-tabs { display: flex; }
+            .drawer-content { display: none !important; }
+            .drawer-content.active { display: flex !important; flex-direction: column; }
+            #memory-container { padding-bottom: 0; }
+            .mobile-tools-container { display: none !important; }
+        }
+        .toolbar.toolbar-needs-wrap {
+            height: auto;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            row-gap: 8px;
+        }
+        .toolbar.toolbar-needs-wrap .toolbar-main { flex-basis: 100%; }
+        .toolbar.toolbar-needs-wrap .editor-mode-group { order: 3; }
+        .toolbar.toolbar-needs-wrap .settings-group { margin-left: auto; }

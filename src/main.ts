@@ -5,6 +5,7 @@ import { DEFAULT_CODE } from './core/config';
 import { ui, consoleUI } from './ui/ui';
 import { app } from './ui/app';
 import { editor } from './ui/editor';
+import { editorAutocomplete } from './ui/editorAutocomplete';
 import { refreshIcons } from './ui/icons';
 
 window.app = app;
@@ -17,6 +18,9 @@ window.setVisualizerEmbedOptions = (options) => app.applyEmbedUiOptions(options)
 
 // --- KEYBOARD SHORTCUTS ---
 document.getElementById('code-input').addEventListener('keydown', (e) => {
+    // Autocomplete/pair insertion gets first pass at key handling.
+    if (editorAutocomplete.handleKeydown(e)) return;
+
     if (e.key === 'Tab') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -52,6 +56,7 @@ document.getElementById('code-input').value = DEFAULT_CODE;
 app.initializeEditorBuffers(DEFAULT_CODE);
 editor.adjustHeight();
 editor.refresh();
+editorAutocomplete.init();
 refreshIcons();
 app.initScenarioLoader();
 ui.renderDomPanel();

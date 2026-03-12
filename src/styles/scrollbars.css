@@ -1,0 +1,59 @@
+/* File purpose: custom scrollbar skin for editor, memory, DOM, and console panels. */
+/* Isolated to avoid accidentally overriding native scrollbars in external embeds. */
+
+        /* Scrollbars */
+        #code-wrapper,
+        #memory-container,
+        .console-box,
+        #dom-view-tree,
+        #dom-view-render,
+        .memory-dom-tooltip,
+        .detached-dom-portal-panel,
+        .memory-array-portal-panel {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(96, 165, 250, 0.75) rgba(15, 23, 42, 0.62);
+        }
+        #code-wrapper::-webkit-scrollbar,
+        #memory-container::-webkit-scrollbar,
+        .console-box::-webkit-scrollbar,
+        #dom-view-tree::-webkit-scrollbar,
+        #dom-view-render::-webkit-scrollbar,
+        .memory-dom-tooltip::-webkit-scrollbar,
+        .detached-dom-portal-panel::-webkit-scrollbar,
+        .memory-array-portal-panel::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        #code-wrapper::-webkit-scrollbar-track,
+        #memory-container::-webkit-scrollbar-track,
+        .console-box::-webkit-scrollbar-track,
+        #dom-view-tree::-webkit-scrollbar-track,
+        #dom-view-render::-webkit-scrollbar-track,
+        .memory-dom-tooltip::-webkit-scrollbar-track,
+        .detached-dom-portal-panel::-webkit-scrollbar-track,
+        .memory-array-portal-panel::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.58);
+            border-radius: 999px;
+        }
+        #code-wrapper::-webkit-scrollbar-thumb,
+        #memory-container::-webkit-scrollbar-thumb,
+        .console-box::-webkit-scrollbar-thumb,
+        #dom-view-tree::-webkit-scrollbar-thumb,
+        #dom-view-render::-webkit-scrollbar-thumb,
+        .memory-dom-tooltip::-webkit-scrollbar-thumb,
+        .detached-dom-portal-panel::-webkit-scrollbar-thumb,
+        .memory-array-portal-panel::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(59, 130, 246, 0.95), rgba(14, 165, 233, 0.92));
+            border: 2px solid rgba(15, 23, 42, 0.62);
+            border-radius: 999px;
+        }
+        #code-wrapper::-webkit-scrollbar-thumb:hover,
+        #memory-container::-webkit-scrollbar-thumb:hover,
+        .console-box::-webkit-scrollbar-thumb:hover,
+        #dom-view-tree::-webkit-scrollbar-thumb:hover,
+        #dom-view-render::-webkit-scrollbar-thumb:hover,
+        .memory-dom-tooltip::-webkit-scrollbar-thumb:hover,
+        .detached-dom-portal-panel::-webkit-scrollbar-thumb:hover,
+        .memory-array-portal-panel::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, rgba(96, 165, 250, 0.98), rgba(6, 182, 212, 0.95));
+        }
