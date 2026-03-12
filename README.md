@@ -50,6 +50,10 @@ flowchart LR
   B --> B2["src/ui/appP5.ts"]
   A --> C["src/ui/ui.ts"]
   B --> D["src/core/interpreter.ts"]
+  D --> D1["src/core/interpreterPause.ts"]
+  D --> D2["src/core/interpreterTemplate.ts"]
+  D --> D3["src/core/interpreterRuntimeHelpers.ts"]
+  D --> D4["src/core/interpreterDomEvents.ts"]
   D --> E["src/core/language.ts (Lexer/Parser/AST)"]
   D --> F["src/core/scope.ts"]
   D --> G["src/core/virtualDom.ts"]
@@ -62,7 +66,11 @@ flowchart LR
 
 - `src/main.ts`: application bootstrap, global window API bindings, desktop/mobile panel interactions.
 - `src/core/language.ts`: tokenizer + parser + AST node definitions.
-- `src/core/interpreter.ts`: runtime evaluator and execution orchestration.
+- `src/core/interpreter.ts`: main runtime evaluator/orchestrator and AST execution flow.
+- `src/core/interpreterPause.ts`: pause/step gating and pedagogical stack helpers.
+- `src/core/interpreterTemplate.ts`: template-literal parsing, token rendering, and incremental template evaluation.
+- `src/core/interpreterRuntimeHelpers.ts`: runtime error formatting + DOM/token helper utilities used by interpreter execution.
+- `src/core/interpreterDomEvents.ts`: DOM event propagation helpers, inline handler execution, and callable invocation wrappers.
 - `src/core/scope.ts`: lexical scope model.
 - `src/core/virtualDom.ts`: in-memory DOM model and DOM-like operations.
 - `src/core/scenarios.ts`: predefined learning/demo scenarios.
@@ -86,6 +94,15 @@ flowchart LR
 - `src/ui/domAnimationPanel.ts`: DOM panel rendering and DOM mutation/read/write animation methods attached to `ui`.
 - `src/ui/memoryPanel.ts`: memory snapshot rendering and array/memory highlight methods attached to `ui`.
 - `src/ui/tokenAnimations.ts`: token/value flow animations and token replacement lifecycle methods attached to `ui`.
+
+### Interpreter Module Split (recent refactor)
+
+`src/core/interpreter.ts` now delegates focused concerns to dedicated modules:
+
+- `src/core/interpreterPause.ts`: step/pause control policy and suppression handling.
+- `src/core/interpreterTemplate.ts`: template literal segment parsing + progressive interpolation rendering.
+- `src/core/interpreterRuntimeHelpers.ts`: runtime error normalization and shared expression/token helpers.
+- `src/core/interpreterDomEvents.ts`: DOM click/event propagation and inline/callable handler execution.
 
 ## Runtime Lifecycle
 

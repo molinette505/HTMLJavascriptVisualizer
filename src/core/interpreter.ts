@@ -28,10 +28,46 @@ import {
     BinaryExpr,
     TernaryExpr,
     ReturnStmt,
-    TokenType,
 } from './language';
 import { Scope } from './scope';
 import { createVirtualDocument, isVirtualDomValue } from './virtualDom';
+import {
+    buildPedagogicalStack as buildPedagogicalStackImpl,
+    executeWithSuppressedPause as executeWithSuppressedPauseImpl,
+    nextInterpreterStep,
+    pauseInterpreter,
+    shouldFastForwardInterpreter,
+    shouldPauseInterpreter,
+    stopInterpreter,
+} from './interpreterPause';
+import {
+    evaluateTemplateExpression as evaluateTemplateExpressionImpl,
+    evaluateTemplateLiteral as evaluateTemplateLiteralImpl,
+} from './interpreterTemplate';
+import {
+    collapseExpressionTokens as collapseExpressionTokensImpl,
+    findScopeForVariable as findScopeForVariableImpl,
+    formatRuntimeError as formatRuntimeErrorImpl,
+    getCallReplacementTokenId as getCallReplacementTokenIdImpl,
+    getExpressionDisplayTokenId as getExpressionDisplayTokenIdImpl,
+    getIdentifierTokenId as getIdentifierTokenIdImpl,
+    getMemberPropertyTokenId as getMemberPropertyTokenIdImpl,
+    isDomNodeVisible as isDomNodeVisibleImpl,
+    logRuntimeError as logRuntimeErrorImpl,
+    refreshDomView as refreshDomViewImpl,
+    setMemberPropertyHoverSnapshot as setMemberPropertyHoverSnapshotImpl,
+    setVariableFunctionAlias as setVariableFunctionAliasImpl,
+} from './interpreterRuntimeHelpers';
+import {
+    buildDomEventPayload as buildDomEventPayloadImpl,
+    executeInlineDomHandler as executeInlineDomHandlerImpl,
+    findDomParent as findDomParentImpl,
+    invokeCallableValue as invokeCallableValueImpl,
+    invokeDomClick as invokeDomClickImpl,
+    resolveCallableFromValue as resolveCallableFromValueImpl,
+    resolveDomNodeByPath as resolveDomNodeByPathImpl,
+    updateDomInputValue as updateDomInputValueImpl,
+} from './interpreterDomEvents';
 
 export class Interpreter {
     constructor(ui, options = {}) {
@@ -191,308 +227,57 @@ export class Interpreter {
     }
 
     findDomParent(rootNode, targetNode) {
-        if (!rootNode || !targetNode || !rootNode.children || rootNode.children.length === 0) return null;
-        for (const child of rootNode.children) {
-            if (child === targetNode) return rootNode;
-            const nested = this.findDomParent(child, targetNode);
-            if (nested) return nested;
-        }
-        return null;
+        return findDomParentImpl(this, rootNode, targetNode);
     }
 
     resolveDomNodeByPath(path) {
-        const root = this.domDocument && this.domDocument.body ? this.domDocument.body : null;
-        if (!root) return null;
-        const normalized = String(path || '').trim();
-        if (!normalized || normalized === '0') return root;
-        const parts = normalized.split('.').map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry));
-        if (parts.length === 0) return root;
-        let cursor = root;
-        const startIndex = parts[0] === 0 ? 1 : 0;
-        for (let index = startIndex; index < parts.length; index++) {
-            const childIndex = parts[index];
-            if (!cursor || !Array.isArray(cursor.children) || childIndex < 0 || childIndex >= cursor.children.length) return cursor;
-            cursor = cursor.children[childIndex];
-        }
-        return cursor || root;
+        return resolveDomNodeByPathImpl(this, path);
     }
 
     updateDomInputValue(path = '', nextValue = '') {
-        const targetNode = this.resolveDomNodeByPath(path);
-        if (!targetNode || targetNode.__domType !== 'element') return false;
-        targetNode.value = String(nextValue ?? '');
-        return true;
+        return updateDomInputValueImpl(this, path, nextValue);
     }
 
     buildDomEventPayload(targetNode, currentTargetNode, eventType = 'click') {
-        return {
-            type: String(eventType || 'click'),
-            target: targetNode || null,
-            currentTarget: currentTargetNode || targetNode || null,
-            defaultPrevented: false,
-            preventDefault() {
-                this.defaultPrevented = true;
-            }
-        };
+        return buildDomEventPayloadImpl(this, targetNode, currentTargetNode, eventType);
     }
 
     resolveCallableFromValue(value) {
-        if (!value) return null;
-        if (value.type === 'function_decl_ref') {
-            const fnNode = value.node;
-            if (!fnNode) return null;
-            return {
-                funcNode: fnNode,
-                closureScope: value.scope || this.globalScope,
-                paramNames: fnNode.params.map((param) => param.name),
-                paramIds: fnNode.params.map((param) => param.id),
-                funcName: value.name || fnNode.name || 'anonymous'
-            };
-        }
-        if (value.type === 'arrow_func' || value.type === 'function_expr') {
-            return {
-                funcNode: value,
-                closureScope: value.scope || this.currentScope || this.globalScope,
-                paramNames: Array.isArray(value.params) ? value.params : [],
-                paramIds: Array.isArray(value.paramIds) ? value.paramIds : [],
-                funcName: value.name || 'anonymous'
-            };
-        }
-        return null;
+        return resolveCallableFromValueImpl(this, value);
     }
 
     async invokeCallableValue(callableValue, argValues = [], callName = 'anonymous', lineHint = 0) {
-        const callable = this.resolveCallableFromValue(callableValue);
-        if (!callable) throw new TypeError(`${callName} is not a function`);
-        const fnScope = new Scope(`${callable.funcName}(${callable.paramNames.join(', ')})`, callable.closureScope, this.currentScope);
-        this.scopeStack.push(fnScope);
-        const previousScope = this.currentScope;
-        let callFramePushed = false;
-        try {
-            if (this.ui && typeof this.ui.resetPauseProbeLine === 'function') this.ui.resetPauseProbeLine(0);
-            for (let index = 0; index < callable.paramNames.length; index++) {
-                const paramName = callable.paramNames[index];
-                const paramValue = index < argValues.length ? argValues[index] : undefined;
-                fnScope.define(paramName, 'let');
-                fnScope.initialize(paramName, paramValue);
-                this.setVariableFunctionAlias(paramName, null, fnScope);
-                await this.ui.updateMemory(this.scopeStack, paramName, 'declare');
-            }
-            await this.ui.wait(300);
-            this.currentScope = fnScope;
-            await this.ui.updateMemory(this.scopeStack);
-            this.callStack.push(Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : this.lastPausedLine);
-            callFramePushed = true;
-
-            let result = undefined;
-            const body = callable.funcNode.body;
-            if (body instanceof BlockStmt) {
-                const blockResult = await this.executeBlock(body.body);
-                if (blockResult && blockResult.__isReturn) result = blockResult.value;
-            } else {
-                await this.pause(this.lastPausedLine || 1);
-                result = await this.evaluate(body);
-            }
-            return result;
-        } finally {
-            if (callFramePushed) this.callStack.pop();
-            this.currentScope = previousScope;
-            const scopeIndex = this.scopeStack.lastIndexOf(fnScope);
-            if (scopeIndex !== -1) this.scopeStack.splice(scopeIndex, 1);
-            await this.ui.updateMemory(this.scopeStack);
-        }
+        return await invokeCallableValueImpl(this, callableValue, argValues, callName, lineHint);
     }
 
     async executeInlineDomHandler(sourceCode, eventPayload, lineHint = 0) {
-        const code = String(sourceCode || '').trim();
-        if (!code) return;
-        const lexer = new Lexer(code);
-        const tokens = lexer.tokenize();
-        const parser = new Parser(tokens);
-        const ast = parser.parse();
-        const inlineScope = new Scope('EventInline', this.currentScope, this.currentScope);
-        this.scopeStack.push(inlineScope);
-        const previousScope = this.currentScope;
-        let callFramePushed = false;
-        try {
-            if (this.ui && typeof this.ui.resetPauseProbeLine === 'function') this.ui.resetPauseProbeLine(0);
-            inlineScope.define('event', 'const');
-            inlineScope.initialize('event', eventPayload);
-            await this.ui.updateMemory(this.scopeStack, 'event', 'declare');
-            await this.ui.wait(200);
-            this.currentScope = inlineScope;
-            await this.ui.updateMemory(this.scopeStack);
-            this.callStack.push(Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : this.lastPausedLine);
-            callFramePushed = true;
-            await this.executeBlock(ast.body || []);
-        } finally {
-            if (callFramePushed) this.callStack.pop();
-            this.currentScope = previousScope;
-            const scopeIndex = this.scopeStack.lastIndexOf(inlineScope);
-            if (scopeIndex !== -1) this.scopeStack.splice(scopeIndex, 1);
-            await this.ui.updateMemory(this.scopeStack);
-        }
+        await executeInlineDomHandlerImpl(this, sourceCode, eventPayload, lineHint);
     }
 
     async invokeDomClick(path = '') {
-        if (this.shouldStop) return;
-        if (this.isHandlingEvent) return;
-        this.isHandlingEvent = true;
-        this.callStack = [];
-        const triggerBtn = (typeof document !== 'undefined') ? document.getElementById('btn-trigger') : null;
-        const setEventBtn = (typeof document !== 'undefined') ? document.getElementById('btn-set-event') : null;
-        if (triggerBtn) triggerBtn.disabled = true;
-        if (setEventBtn) setEventBtn.disabled = true;
-        try {
-            const clickedNode = this.resolveDomNodeByPath(path);
-            if (!clickedNode) return;
-            const targetLine = this.lastPausedLine || 1;
-            this.ui.log(`> Evenement: click`, 'info');
-            const propagation = [];
-            let cursor = clickedNode;
-            while (cursor) {
-                propagation.push(cursor);
-                cursor = this.findDomParent(this.domDocument && this.domDocument.body, cursor);
-            }
-            for (const currentTarget of propagation) {
-                if (!currentTarget || typeof currentTarget.getEventHandlers !== 'function') continue;
-                const handlers = currentTarget.getEventHandlers('click');
-                if (!Array.isArray(handlers) || handlers.length === 0) continue;
-                for (const entry of handlers) {
-                    if (!entry) continue;
-                    const payload = this.buildDomEventPayload(clickedNode, currentTarget, 'click');
-                    if (entry.kind === 'inline-attr') {
-                        await this.executeInlineDomHandler(entry.handler, payload, targetLine);
-                        continue;
-                    }
-                    await this.invokeCallableValue(entry.handler, [payload], 'click', targetLine);
-                }
-            }
-        } catch (error) {
-            await this.logRuntimeError(error, 'Erreur evenement');
-            this.stop();
-            this.ui.setRunningState(false);
-            this.ui.setEventMode(false);
-            this.ui.resetDisplay({ keepConsole: true });
-        } finally {
-            this.ui.highlightLines([]);
-            this.ui.resetVisuals();
-            this.isHandlingEvent = false;
-            if (!this.shouldStop) {
-                if (triggerBtn) triggerBtn.disabled = false;
-                if (setEventBtn) setEventBtn.disabled = false;
-            }
-        }
+        await invokeDomClickImpl(this, path);
     }
 
-    async nextStep() { if (this.resolveNext) { const r = this.resolveNext; this.resolveNext = null; r(); } }
-    stop() { this.shouldStop = true; if (this.resolveNext) this.resolveNext(); }
+    async nextStep() {
+        nextInterpreterStep(this);
+    }
+    stop() {
+        stopInterpreter(this);
+    }
     shouldPause(line) {
-        this.pendingPauseLineOverride = null;
-        this.pendingPauseSoft = false;
-        this.pendingPauseSkipMode = null;
-        if (typeof this.shouldPauseAtLine !== 'function') return true;
-        try {
-            const decision = this.shouldPauseAtLine(line);
-            if (decision && typeof decision === 'object') {
-                const pauseLine = Number(
-                    Object.prototype.hasOwnProperty.call(decision, 'pauseLine')
-                        ? decision.pauseLine
-                        : decision.line
-                );
-                if (Number.isFinite(pauseLine) && pauseLine > 0) {
-                    this.pendingPauseLineOverride = pauseLine;
-                }
-                if (Object.prototype.hasOwnProperty.call(decision, 'soft')) {
-                    this.pendingPauseSoft = Boolean(decision.soft);
-                }
-                if (Object.prototype.hasOwnProperty.call(decision, 'skipMode')) {
-                    this.pendingPauseSkipMode = Boolean(decision.skipMode);
-                }
-                if (Object.prototype.hasOwnProperty.call(decision, 'pause')) {
-                    return Boolean(decision.pause);
-                }
-                return true;
-            }
-            return Boolean(decision);
-        } catch (error) {
-            return true;
-        }
+        return shouldPauseInterpreter(this, line);
     }
     shouldFastForward() {
-        if (typeof this.shouldFastForwardExecution !== 'function') return false;
-        try {
-            return Boolean(this.shouldFastForwardExecution());
-        } catch (error) {
-            return false;
-        }
+        return shouldFastForwardInterpreter(this);
     }
     async pause(line) {
-        if (this.shouldStop) throw new Error("STOP");
-        if (this.ui && this.ui.stepMode === 'micro' && this.ui.microSkipToNextInstruction) {
-            this.ui.microSkipToNextInstruction = false;
-            this.ui.skipMode = false;
-        }
-        if (this.pauseSuppressionDepth > 0) return;
-        const shouldPauseNow = this.shouldPause(line);
-        const pauseLine = shouldPauseNow
-            ? (
-                Number.isFinite(this.pendingPauseLineOverride) && this.pendingPauseLineOverride > 0
-                    ? this.pendingPauseLineOverride
-                    : line
-            )
-            : line;
-        const pauseIsSoft = shouldPauseNow ? Boolean(this.pendingPauseSoft) : false;
-        const skipModeOverride = this.pendingPauseSkipMode;
-        this.pendingPauseLineOverride = null;
-        this.pendingPauseSoft = false;
-        this.pendingPauseSkipMode = null;
-        this.lastPausedLine = pauseLine;
-        if (!shouldPauseNow) {
-            this.ui.skipMode = (typeof skipModeOverride === 'boolean') ? skipModeOverride : true;
-            return;
-        }
-        if (this.ui && typeof this.ui.setPauseContext === 'function') {
-            this.ui.setPauseContext({ soft: pauseIsSoft, line: pauseLine });
-        }
-        this.ui.skipMode = false;
-        this.ui.setStepButtonState(false);
-        this.ui.resetVisuals();
-        const activeLines = [...this.callStack, pauseLine];
-        this.ui.highlightLines(activeLines);
-        await this.ui.updateMemory(this.scopeStack);
-        this.ui.setStepButtonState(true);
-        await new Promise(r => { this.resolveNext = r; });
-        this.ui.setStepButtonState(false);
-        if (this.shouldStop) throw new Error("STOP");
+        await pauseInterpreter(this, line);
     }
     async executeWithSuppressedPause(node) {
-        this.pauseSuppressionDepth += 1;
-        try {
-            return await this.execute(node);
-        } finally {
-            this.pauseSuppressionDepth = Math.max(0, this.pauseSuppressionDepth - 1);
-        }
+        return await executeWithSuppressedPauseImpl(this, node);
     }
     buildPedagogicalStack(lineHint = this.lastPausedLine) {
-        const currentLine = Number.isFinite(lineHint) && lineHint > 0 ? Number(lineHint) : null;
-        const functionScopes = this.scopeStack
-            .filter((scope) => scope && typeof scope.name === 'string')
-            .filter((scope) => scope.name !== 'Global')
-            .filter((scope) => !scope.name.startsWith('Block'));
-        const frames = [];
-        for (let i = functionScopes.length - 1; i >= 0; i--) {
-            const scope = functionScopes[i];
-            const callLine = Number.isFinite(this.callStack[i]) && this.callStack[i] > 0 ? this.callStack[i] : null;
-            const line = (i === functionScopes.length - 1 ? currentLine : callLine) || callLine || currentLine;
-            frames.push(line ? `${scope.name} (ligne ${line})` : `${scope.name}`);
-        }
-        if (frames.length === 0) {
-            frames.push(currentLine ? `global (ligne ${currentLine})` : 'global');
-        } else if (currentLine) {
-            frames.push(`global (ligne ${currentLine})`);
-        }
-        return frames;
+        return buildPedagogicalStackImpl(this, lineHint);
     }
     hoistVarDeclaration(node) {
         if (!node || !(node instanceof VarDecl)) return;
@@ -530,179 +315,40 @@ export class Interpreter {
         }
     }
     formatRuntimeError(error) {
-        let name = (error && error.name) ? String(error.name) : 'Error';
-        const raw = (error && error.message) ? String(error.message) : String(error);
-        const stack = (error && error.stack) ? String(error.stack) : '';
-        const errorLine = (error && Number.isFinite(error.line)) ? Number(error.line) : null;
-        const pedagogicalStack = (error && Array.isArray(error.__pedagogicalStack) && error.__pedagogicalStack.length > 0)
-            ? error.__pedagogicalStack.map((entry) => String(entry))
-            : (errorLine ? [`parser (ligne ${errorLine})`] : this.buildPedagogicalStack(this.lastPausedLine));
-        let friendly = raw;
-        const declared = raw.match(/^Variable (.+) déjà déclarée$/);
-        if (declared) {
-            name = 'SyntaxError';
-            friendly = `Variable "${declared[1]}" deja declaree dans ce scope.`;
-        }
-        const constant = raw.match(/^Assignation à une constante (.+)$/);
-        if (constant) {
-            name = 'TypeError';
-            friendly = `Impossible de modifier la constante "${constant[1]}".`;
-        }
-        const undefinedVar = raw.match(/^Variable (.+) non définie$/);
-        if (undefinedVar) {
-            name = 'ReferenceError';
-            friendly = `${undefinedVar[1]} is not defined.`;
-        }
-        const tdzVar = raw.match(/^Cannot access '(.+)' before initialization$/);
-        if (tdzVar) {
-            name = 'ReferenceError';
-            friendly = `Cannot access '${tdzVar[1]}' before initialization.`;
-        }
-        const unknownFn = raw.match(/^Fonction (.+) inconnue$/);
-        if (unknownFn) {
-            name = 'ReferenceError';
-            friendly = `${unknownFn[1]} is not defined.`;
-        }
-        const notFunction = raw.match(/^(.+) is not a function$/);
-        if (notFunction) {
-            name = 'TypeError';
-            friendly = raw;
-        }
-        if (raw.includes('Cannot read properties of undefined')) {
-            name = 'TypeError';
-            friendly = "Impossible de lire une propriete d'une valeur undefined.";
-        }
-        if (raw.includes('Cannot set properties of undefined')) {
-            name = 'TypeError';
-            friendly = "Impossible d'ecrire une propriete sur une valeur undefined.";
-        }
-        if (raw.includes('is not a function') && !notFunction) {
-            name = 'TypeError';
-            friendly = "Tentative d'appel d'une valeur qui n'est pas une fonction.";
-        }
-        if (raw.includes('removeChild: noeud introuvable')) friendly = "removeChild: le noeud n'est pas un enfant direct ou descendant du parent cible.";
-        if (raw.startsWith('Attendu:')) {
-            name = 'SyntaxError';
-            friendly = `Erreur de syntaxe: ${raw}`;
-        }
-        if (raw === 'Unexpected token' || raw === 'Invalid assignment target' || raw.includes('Syntaxe de fonction fléchée invalide')) {
-            name = 'SyntaxError';
-        }
-        if (name === 'SyntaxError' && errorLine && !friendly.includes('ligne')) {
-            friendly = `${friendly} (ligne ${errorLine})`;
-        }
-        return { name, raw, friendly, stack, pedagogicalStack, line: errorLine };
+        return formatRuntimeErrorImpl(this, error);
     }
     async logRuntimeError(error, prefix = "Erreur") {
-        const { name, raw, friendly, stack, pedagogicalStack, line } = this.formatRuntimeError(error);
-        if (typeof this.ui.renderError === 'function') {
-            await this.ui.renderError({
-                prefix,
-                name,
-                message: friendly,
-                technicalMessage: raw,
-                stack,
-                pedagogicalStack,
-                line,
-                errorObject: error
-            });
-            return;
-        }
-        this.ui.log(`${prefix}: ${name}: ${friendly}`, "error");
-        if (friendly !== raw) this.ui.log(`Detail technique: ${raw}`, "error");
+        await logRuntimeErrorImpl(this, error, prefix);
     }
     refreshDomView() {
-        if (this.domDocument && typeof this.ui.updateDom === 'function') this.ui.updateDom(this.domDocument);
+        refreshDomViewImpl(this);
     }
     getExpressionDisplayTokenId(expressionNode) {
-        if (!expressionNode) return null;
-        if (expressionNode.resultTokenId) return expressionNode.resultTokenId;
-        if (!expressionNode.domIds || expressionNode.domIds.length === 0) return null;
-        if (typeof document === 'undefined') return expressionNode.domIds[0];
-        for (const tokenId of expressionNode.domIds) {
-            const tokenEl = document.getElementById(tokenId);
-            if (tokenEl && tokenEl.style.display !== 'none') return tokenId;
-        }
-        return expressionNode.domIds[0];
+        return getExpressionDisplayTokenIdImpl(this, expressionNode);
     }
     getIdentifierTokenId(domIds, identifierName) {
-        if (!domIds || domIds.length === 0) return null;
-        if (typeof document === 'undefined' || !identifierName) return domIds[0];
-        for (const tokenId of domIds) {
-            const tokenEl = document.getElementById(tokenId);
-            if (!tokenEl || tokenEl.style.display === 'none') continue;
-            if (String(tokenEl.innerText || '').trim() === String(identifierName)) return tokenId;
-        }
-        return domIds[0];
+        return getIdentifierTokenIdImpl(this, domIds, identifierName);
     }
     getMemberPropertyTokenId(node) {
-        if (!node || !node.domIds || node.domIds.length === 0) return null;
-        if (node.computed) return null;
-        return node.domIds[node.domIds.length - 1];
+        return getMemberPropertyTokenIdImpl(this, node);
     }
     setMemberPropertyHoverSnapshot(node, value) {
-        if (!node || !node.property || typeof this.ui.setCodePropertySnapshot !== 'function') return;
-        const tokenId = this.getMemberPropertyTokenId(node);
-        if (!tokenId) return;
-        const propertyName = (node.property && Object.prototype.hasOwnProperty.call(node.property, 'value'))
-            ? String(node.property.value)
-            : 'property';
-        this.ui.setCodePropertySnapshot(tokenId, propertyName, value);
+        setMemberPropertyHoverSnapshotImpl(this, node, value);
     }
     findScopeForVariable(name, scope = this.currentScope) {
-        if (!scope) return null;
-        if (scope.variables && Object.prototype.hasOwnProperty.call(scope.variables, name)) return scope;
-        if (scope.parent) return this.findScopeForVariable(name, scope.parent);
-        return null;
+        return findScopeForVariableImpl(this, name, scope);
     }
     setVariableFunctionAlias(name, alias = null, scope = null) {
-        const resolvedScope = scope || this.findScopeForVariable(name, this.currentScope);
-        if (!resolvedScope || !resolvedScope.variables || !resolvedScope.variables[name]) return;
-        if (alias) resolvedScope.variables[name].functionAlias = alias;
-        else delete resolvedScope.variables[name].functionAlias;
+        setVariableFunctionAliasImpl(this, name, alias, scope);
     }
     collapseExpressionTokens(domIds, keepTokenId) {
-        if (!domIds || domIds.length === 0) return;
-        for (const tokenId of domIds) {
-            if (tokenId === keepTokenId) continue;
-            const tokenEl = document.getElementById(tokenId);
-            if (!tokenEl) continue;
-            if (!this.ui.modifiedTokens.has(tokenId)) this.ui.modifiedTokens.set(tokenId, { original: tokenEl.innerText, transient: true });
-            tokenEl.style.display = 'none';
-        }
+        collapseExpressionTokensImpl(this, domIds, keepTokenId);
     }
     getCallReplacementTokenId(callNode) {
-        if (!callNode) return null;
-        const domIds = (callNode.domIds && callNode.domIds.length > 0)
-            ? callNode.domIds
-            : ((callNode.callee && callNode.callee.domIds) ? callNode.callee.domIds : []);
-        if (!domIds || domIds.length === 0) return null;
-        if (typeof document === 'undefined') return domIds[Math.floor(domIds.length / 2)] || domIds[0];
-        const visible = domIds
-            .map((tokenId) => document.getElementById(tokenId))
-            .filter((tokenEl) => tokenEl && tokenEl.style.display !== 'none');
-        if (visible.length === 0) return domIds[0];
-        if (visible.length === 1) return visible[0].id;
-        const rectData = visible.map((tokenEl) => ({ tokenEl, rect: tokenEl.getBoundingClientRect() }));
-        const minLeft = Math.min(...rectData.map((entry) => entry.rect.left));
-        const maxRight = Math.max(...rectData.map((entry) => entry.rect.right));
-        const centerX = (minLeft + maxRight) / 2;
-        let best = rectData[0];
-        let bestDistance = Math.abs((best.rect.left + best.rect.width / 2) - centerX);
-        for (let index = 1; index < rectData.length; index++) {
-            const candidate = rectData[index];
-            const candidateDistance = Math.abs((candidate.rect.left + candidate.rect.width / 2) - centerX);
-            if (candidateDistance < bestDistance) {
-                best = candidate;
-                bestDistance = candidateDistance;
-            }
-        }
-        return best.tokenEl.id;
+        return getCallReplacementTokenIdImpl(this, callNode);
     }
     isDomNodeVisible(node) {
-        if (!node) return false;
-        if (typeof this.ui.getDomTreeNodeElement !== 'function') return true;
-        return Boolean(this.ui.getDomTreeNodeElement(node));
+        return isDomNodeVisibleImpl(this, node);
     }
 
     async execute(node) {
@@ -1003,172 +649,11 @@ export class Interpreter {
     }
 
     async evaluateTemplateExpression(exprSource) {
-        if (!exprSource.trim()) return '';
-        const lexer = new Lexer(exprSource);
-        const rawTokens = lexer.tokenize();
-        const parser = new Parser(rawTokens);
-        const ast = parser.parse();
-        if (!ast.body || ast.body.length !== 1) throw new Error('Expression template invalide');
-        return await this.evaluate(ast.body[0]);
-    }
-
-    templateTokenClass(type) {
-        switch (type) {
-            case TokenType.KEYWORD: return 'tok-keyword';
-            case TokenType.STRING: return 'tok-string';
-            case TokenType.NUMBER: return 'tok-number';
-            case TokenType.BOOLEAN: return 'tok-boolean';
-            case TokenType.COMMENT: return 'tok-comment';
-            case TokenType.OPERATOR: return 'tok-operator';
-            case TokenType.PUNCTUATION: return 'tok-punctuation';
-            default: return 'tok-ident';
-        }
-    }
-
-    escapeTemplateHtml(value) {
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
-    parseTemplateSegments(templateSource) {
-        const segments = [];
-        let index = 0;
-        let textStart = 0;
-        while (index < templateSource.length) {
-            const current = templateSource[index];
-            if (current === '\\' && index + 1 < templateSource.length) {
-                index += 2;
-                continue;
-            }
-            if (current === '$' && templateSource[index + 1] === '{') {
-                if (textStart < index) {
-                    segments.push({ type: 'text', value: templateSource.slice(textStart, index) });
-                }
-                index += 2;
-                const exprStart = index;
-                let depth = 1;
-                while (index < templateSource.length && depth > 0) {
-                    const char = templateSource[index];
-                    if (char === "'" || char === '"' || char === '`') {
-                        const quote = char;
-                        index++;
-                        while (index < templateSource.length) {
-                            if (templateSource[index] === '\\') { index += 2; continue; }
-                            if (templateSource[index] === quote) { index++; break; }
-                            index++;
-                        }
-                        continue;
-                    }
-                    if (char === '{') depth++;
-                    else if (char === '}') depth--;
-                    index++;
-                }
-                if (depth !== 0) throw new Error('Template literal invalide: ${...} non ferme');
-                segments.push({ type: 'expr', source: templateSource.slice(exprStart, index - 1), value: '' });
-                textStart = index;
-                continue;
-            }
-            index++;
-        }
-        if (textStart < templateSource.length) {
-            segments.push({ type: 'text', value: templateSource.slice(textStart) });
-        }
-        return segments;
-    }
-
-    decodeTemplateText(text) {
-        let value = '';
-        for (let index = 0; index < text.length; index++) {
-            const current = text[index];
-            if (current === '\\' && index + 1 < text.length) {
-                const escaped = text[index + 1];
-                if (escaped === 'n') { value += '\n'; index++; continue; }
-                if (escaped === 't') { value += '\t'; index++; continue; }
-                value += escaped;
-                index++;
-                continue;
-            }
-            value += current;
-        }
-        return value;
-    }
-
-    renderTemplateSegments(segments, includeUnresolvedExpr = false, decodeText = false) {
-        return segments.map((segment) => {
-            if (segment.type === 'text') return decodeText ? this.decodeTemplateText(segment.value) : segment.value;
-            if (includeUnresolvedExpr && !segment.resolved) return `\${${segment.source}}`;
-            return String(segment.value);
-        }).join('');
-    }
-
-    renderTemplateTokenMarkup(segments) {
-        let html = '`';
-        for (const segment of segments) {
-            if (segment.type === 'text') {
-                html += this.escapeTemplateHtml(segment.value);
-                continue;
-            }
-            if (segment.resolved) {
-                html += this.escapeTemplateHtml(String(segment.value));
-                continue;
-            }
-            html += '<span class="tok-punctuation">${</span>';
-            const exprTokens = segment.tokens || [];
-            exprTokens.forEach((exprToken) => {
-                if (exprToken.type === 'WHITESPACE') {
-                    html += this.escapeTemplateHtml(exprToken.value);
-                    return;
-                }
-                html += `<span id="${exprToken.id}" class="${this.templateTokenClass(exprToken.type)}">${this.escapeTemplateHtml(exprToken.value)}</span>`;
-            });
-            html += '<span class="tok-punctuation">}</span>';
-        }
-        html += '`';
-        return html;
-    }
-
-    setTemplateTokenContent(tokenId, segments) {
-        if (!tokenId) return;
-        const markup = this.renderTemplateTokenMarkup(segments);
-        if (typeof this.ui.setTokenMarkup === 'function') {
-            this.ui.setTokenMarkup(tokenId, markup, true);
-            return;
-        }
-        const plain = `\`${this.renderTemplateSegments(segments, true)}\``;
-        this.ui.setRawTokenText(tokenId, plain, true);
+        return await evaluateTemplateExpressionImpl(this, exprSource);
     }
 
     async evaluateTemplateLiteral(templateSource, tokenId = null) {
-        const segments = this.parseTemplateSegments(templateSource);
-        segments.forEach((segment) => {
-            if (segment.type !== 'expr') return;
-            const exprLexer = new Lexer(segment.source);
-            const exprRawTokens = exprLexer.tokenize();
-            const exprParser = new Parser(exprRawTokens);
-            const exprAst = exprParser.parse();
-            if (!exprAst.body || exprAst.body.length !== 1) throw new Error('Expression template invalide');
-            segment.tokens = exprRawTokens;
-            segment.ast = exprAst.body[0];
-            segment.resolved = false;
-        });
-        if (tokenId) {
-            this.setTemplateTokenContent(tokenId, segments);
-        }
-        for (const segment of segments) {
-            if (segment.type !== 'expr') continue;
-            const exprValue = await this.evaluate(segment.ast);
-            segment.value = exprValue;
-            segment.resolved = true;
-            if (tokenId) {
-                this.setTemplateTokenContent(tokenId, segments);
-                await this.ui.wait(400);
-            }
-        }
-        return this.renderTemplateSegments(segments, false, true);
+        return await evaluateTemplateLiteralImpl(this, templateSource, tokenId);
     }
 
     async evaluate(node, options = {}) {
