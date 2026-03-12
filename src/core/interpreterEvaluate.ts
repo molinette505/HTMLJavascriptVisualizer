@@ -84,12 +84,21 @@ export async function evaluateNode(interpreter, node, options = {}) {
     // Member access supports arrays, strings, virtual DOM nodes, and generic objects.
     if (node instanceof MemberExpr) {
         let obj;
+        // For common `.length` chains (e.g. callResult.length), avoid rendering noisy
+        // intermediate array/object values in code before collapsing to the final number.
+        const staticPropName = (!node.computed && node.property && Object.prototype.hasOwnProperty.call(node.property, 'value'))
+            ? node.property.value
+            : null;
+        const shouldSuppressObjectResultVisual = staticPropName === 'length';
         if (node.object instanceof Identifier) {
             const varName = node.object.name;
             const scopedVar = interpreter.currentScope.get(varName);
             obj = scopedVar.value;
         } else {
-            obj = await interpreter.evaluate(node.object);
+            obj = await interpreter.evaluate(
+                node.object,
+                shouldSuppressObjectResultVisual ? { suppressResultVisual: true } : {}
+            );
         }
         const prop = node.computed ? await interpreter.evaluate(node.property) : node.property.value;
         if (Array.isArray(obj) && prop === 'length' && node.object instanceof Identifier) {
@@ -105,6 +114,18 @@ export async function evaluateNode(interpreter, node, options = {}) {
                 }
             });
             return obj.length;
+        }
+        if (Array.isArray(obj) && prop === 'length') {
+            const len = obj.length;
+            interpreter.setMemberPropertyHoverSnapshot(node, len);
+            const replacementTargetId = interpreter.getExpressionDisplayTokenId(node)
+                || (node.domIds && node.domIds.length > 0 ? node.domIds[0] : null);
+            if (replacementTargetId) {
+                interpreter.ui.replaceTokenText(replacementTargetId, len, true);
+                interpreter.collapseExpressionTokens(node.domIds, replacementTargetId);
+                await interpreter.ui.wait(120);
+            }
+            return len;
         }
         if (Array.isArray(obj) && node.object instanceof Identifier) {
             const val = obj[prop];
