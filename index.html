@@ -20,7 +20,7 @@
                 <button id="btn-load" class="icon-btn" onclick="app.toggleLoadPopup()" data-tooltip="load" aria-label="load"><i data-lucide="folder-open"></i></button>
                 <button id="btn-breakpoints-toggle" class="icon-btn icon-btn-toggle" onclick="ui.toggleAllBreakpoints()" data-tooltip="toggle break points" aria-label="toggle break points" aria-pressed="false"><i data-lucide="octagon-pause"></i></button>
                 <button id="btn-step-mode" class="icon-btn icon-btn-toggle is-on" onclick="ui.cycleStepMode()" data-tooltip="toggle step size" aria-pressed="true" aria-label="toggle step size"><i data-lucide="between-horizontal-start"></i></button>
-                <button id="btn-options" class="icon-btn" onclick="ui.toggleOptionsPopup()" data-tooltip="settings" aria-label="settings"><i data-lucide="sliders-horizontal"></i></button>
+                <button id="btn-options" class="icon-btn" onclick="event.stopPropagation(); ui.toggleOptionsPopup()" data-tooltip="settings" aria-label="settings"><i data-lucide="sliders-horizontal"></i></button>
             </div>
         </div>
         <div class="editor-mode-group" role="group" aria-label="Mode d'edition">
